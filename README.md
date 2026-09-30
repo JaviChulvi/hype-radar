@@ -56,6 +56,8 @@ Open **http://127.0.0.1:5173**. The frontend proxies `/ws/btc` and `/health` to 
 
 To check the frontend's types and production build, run `npm run build` in `frontend/`. No API keys are required.
 
+Run the backend regression tests with `uv run python -m unittest -v` in `backend/`.
+
 ## Proposed architecture
 
 Build a modular monolith with separate ingestion, evaluation, API, and notification processes. Share exchange subscriptions per market instead of opening a connection per user.

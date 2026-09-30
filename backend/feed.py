@@ -22,6 +22,7 @@ class Candle(BaseModel):
     high: Decimal = Field(alias="h", gt=0)
     low: Decimal = Field(alias="l", gt=0)
     close: Decimal = Field(alias="c", gt=0)
+    trades: int = Field(alias="n", ge=0, exclude=True)
     coin: Literal["BTC"] = Field(alias="s", exclude=True)
     interval: Literal["1d"] = Field(alias="i", exclude=True)
 
@@ -86,12 +87,15 @@ class BitcoinFeed:
                 continue
             candle = Candle.model_validate(message["data"])
             self.last_received_at = time.time()
+            candles = self.candles if self.status == "live" else pending
+            if self.status == "live" and candles and candle.time < max(candles):
+                continue
+            previous = candles.get(candle.time)
+            if previous is not None and candle.trades < previous.trades:
+                continue
+            candles[candle.time] = candle
             if self.status != "live":
-                pending[candle.time] = candle
                 continue
-            if self.candles and candle.time < max(self.candles):
-                continue
-            self.candles[candle.time] = candle
             if len(self.candles) > HISTORY_SIZE:
                 del self.candles[min(self.candles)]
             self.broadcast({"type": "candle", "candle": candle.model_dump(mode="json")})
@@ -101,9 +105,9 @@ class BitcoinFeed:
         async with httpx.AsyncClient(timeout=10) as http:
             while True:
                 try:
-                    async with connect(
+                    async for socket in connect(
                         "wss://api.hyperliquid.xyz/ws", open_timeout=10
-                    ) as socket:
+                    ):
                         await socket.send(
                             json.dumps(
                                 {
@@ -140,7 +144,12 @@ class BitcoinFeed:
                                 c.time: c
                                 for c in map(Candle.model_validate, response.json())
                             }
-                            candles.update(pending)
+                            # Trade counts order observations within the same candle.
+                            # Keep REST on ties so an older buffer cannot undo history.
+                            for candle in pending.values():
+                                previous = candles.get(candle.time)
+                                if previous is None or candle.trades > previous.trades:
+                                    candles[candle.time] = candle
                             if not candles:
                                 raise ValueError("No BTC history returned")
                             self.candles = dict(sorted(candles.items())[-HISTORY_SIZE:])
