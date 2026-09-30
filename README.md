@@ -30,6 +30,34 @@ The user reviews the resulting conditions and activates the rule. When they are 
 
 The first release will focus on a small basket of markets, potentially HYPE and selected instruments from one HIP-3 deployer. Delivery starts with the deterministic engine and visual editor, followed by natural-language assistance. The roadmap prioritizes reliable detection, useful context, and a complete evidence trail.
 
+## Run locally
+
+The first implementation streams Hyperliquid BTC perpetual daily candles through FastAPI to a React chart. One shared ingestion task serves every browser; the latest 200 candles stay in memory.
+
+Requirements: Python 3.12+, [uv](https://docs.astral.sh/uv/), and Node.js 22.12+.
+
+Start the backend from the repository root:
+
+```sh
+cd backend
+uv sync
+uv run uvicorn main:app --host 127.0.0.1 --port 8000
+```
+
+In a second terminal, start the frontend from the repository root:
+
+```sh
+cd frontend
+npm ci
+npm run dev
+```
+
+Open **http://127.0.0.1:5173**. The frontend proxies `/ws/btc` and `/health` to the backend. Run one backend worker to retain one exchange connection. History is loaded on startup and refreshed after upstream reconnection; the chart preserves its last data while reconnecting.
+
+To check the frontend's types and production build, run `npm run build` in `frontend/`. No API keys are required.
+
+Run the backend regression tests with `uv run python -m unittest -v` in `backend/`.
+
 ## Proposed architecture
 
 Build a modular monolith with separate ingestion, evaluation, API, and notification processes. Share exchange subscriptions per market instead of opening a connection per user.
