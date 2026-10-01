@@ -88,18 +88,18 @@ a:focus-visible { outline: 1px solid #928f86; outline-offset: 4px; }
 
 .market-workspace { display: flex; flex: 1; min-height: 0; }
 .chart-pane { position: relative; display: flex; flex-direction: column; flex: 1; min-width: 0; }
-.order-book { width: 350px; flex-shrink: 0; display: flex; flex-direction: column; border-left: 1px solid #34312b; font-size: 12px; color: #e8e5dc; font-variant-numeric: tabular-nums; }
-.book-heading { display: flex; align-items: center; justify-content: space-between; min-height: 44px; padding: 0 14px; border-bottom: 1px solid #34312b; }
+.order-book { width: 350px; flex-shrink: 0; min-height: 0; overflow-y: auto; scrollbar-width: thin; scrollbar-color: #5c5951 #181713; display: flex; flex-direction: column; border-left: 1px solid #34312b; font-size: 12px; color: #e8e5dc; font-variant-numeric: tabular-nums; }
+.book-heading { display: flex; align-items: center; justify-content: space-between; min-height: 44px; flex-shrink: 0; padding: 0 14px; border-bottom: 1px solid #34312b; }
 .book-heading h2 { align-self: stretch; display: flex; align-items: center; margin: 0; border-bottom: 1px solid #b39a6a; font-size: 13px; font-weight: 500; }
 .book-heading .status { color: #b5b1a8; font-size: 11px; }
 .book-controls { display: flex; justify-content: space-between; padding: 0 6px; }
 .book-controls .select-trigger { border: 0; border-radius: 0; min-height: 40px; padding: 0 8px; font-size: 12px; }
-.book-table { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.book-table { flex: none; min-height: 0; display: flex; flex-direction: column; }
 .book-row { display: grid; grid-template-columns: 0.85fr 1fr 1.15fr; align-items: center; column-gap: 8px; padding: 0 12px; height: 24px; flex-shrink: 0; position: relative; }
 .book-row > span:not(.depth-bar) { position: relative; z-index: 1; text-align: right; white-space: nowrap; }
 .book-row > span:first-of-type:not(.depth-bar), .book-row > span.book-price { text-align: left; }
 .book-columns { color: #b5b1a8; height: 26px; }
-.book-depth { display: flex; flex-direction: column; flex: 1; min-height: 0; position: relative; }
+.book-depth { display: flex; flex-direction: column; height: 268px; flex: none; position: relative; }
 .book-side { display: flex; flex-direction: column; flex: 1; min-height: 0; }
 .book-side.asks { justify-content: flex-end; }
 .depth-bar { position: absolute; inset: 1px auto 1px 0; pointer-events: none; }
@@ -125,3 +125,17 @@ a:focus-visible { outline: 1px solid #928f86; outline-offset: 4px; }
   .order-book { width: 100%; height: 666px; border-left: 0; border-top: 1px solid #34312b; }
   .book-controls .select-trigger { min-height: 44px; }
 }
+
+
+.recent-trades { display: flex; flex-direction: column; flex: 1; min-height: 166px; border-top: 1px solid #34312b; }
+.trade-hint { color: #b5b1a8; font-size: 11px; }
+.trades-table { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.trade-row { display: grid; grid-template-columns: 30px 0.9fr 1.15fr 1fr; column-gap: 8px; align-items: center; min-height: 24px; padding: 0 12px; text-align: right; white-space: nowrap; }
+.trade-row > :first-child { text-align: left; }
+.trade-list { overflow-y: auto; flex: 1; min-height: 0; scrollbar-width: thin; scrollbar-color: #5c5951 #181713; }
+.trade-list:focus-visible { outline: 1px solid #b39a6a; outline-offset: -2px; }
+.trade-list .trade-row:hover { background: #e8e5dc0a; }
+.buy .trade-side, .buy .trade-price { color: #53ba91; }
+.sell .trade-side, .sell .trade-price { color: #ef718a; }
+.trade-row time { color: #b5b1a8; }
+.trades-empty { margin: 24px 12px; color: #b5b1a8; text-align: center; }

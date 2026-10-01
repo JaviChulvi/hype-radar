@@ -275,7 +275,7 @@ class OrderBookTests(unittest.IsolatedAsyncioTestCase):
                 item = await messages.get()
                 if isinstance(item, Exception):
                     raise item
-                return json.dumps({"channel": "l2Book", "data": item})
+                return json.dumps(item if "channel" in item else {"channel": "l2Book", "data": item})
 
         async def connection(*args, **kwargs):
             yield Socket()
@@ -294,6 +294,14 @@ class OrderBookTests(unittest.IsolatedAsyncioTestCase):
                 snapshot = await asyncio.wait_for(queue.get(), 2)
                 self.assertEqual(snapshot["status"], "live")
                 self.assertEqual(subscriptions[0], {"type": "l2Book", "coin": "xyz:SP500", "nSigFigs": 4, "fast": True})
+                await messages.put({"channel": "trades", "data": [{
+                    "coin": "xyz:SP500", "px": "100", "sz": "2",
+                    "side": "B", "time": 10, "tid": 1,
+                }]})
+                execution = await asyncio.wait_for(queue.get(), 2)
+                self.assertEqual(execution["type"], "trades")
+                self.assertEqual(execution["trades"][0]["sz"], "2")
+                self.assertEqual(feed.subscribe().get_nowait()["trades"], execution["trades"])
                 await messages.put(book(9, [[], []]))
                 await messages.put(book(11, [[{"px": "98", "sz": "4"}], []]))
                 updated = await asyncio.wait_for(queue.get(), 2)
@@ -302,12 +310,36 @@ class OrderBookTests(unittest.IsolatedAsyncioTestCase):
                 await messages.put(OSError("lost connection"))
                 self.assertEqual((await asyncio.wait_for(queue.get(), 2))["status"], "reconnecting")
                 self.assertIsNone(feed.subscribe().get_nowait()["book"])
+                self.assertEqual(feed.trades, {})
                 await messages.put(book(12, [[], []]))
                 self.assertEqual((await asyncio.wait_for(queue.get(), 3))["book"]["levels"], [[], []])
-                self.assertEqual(len(subscriptions), 2)
+                self.assertEqual(subscriptions[1], {"type": "trades", "coin": "xyz:SP500"})
+                self.assertEqual(len(subscriptions), 4)
             finally:
                 task.cancel()
                 await asyncio.gather(task, return_exceptions=True)
+
+    async def test_trade_deduplication_order_bounds_and_market_validation(self):
+        feed = OrderBookFeed()
+        queue = feed.subscribe()
+        queue.get_nowait()
+        trades = [{
+            "coin": "BTC", "px": "100", "sz": "0.1", "side": "B" if i % 2 else "A",
+            "time": i // 2, "tid": i, "users": ["buyer", "seller"],
+        } for i in range(50)]
+        feed.update_trades(trades)
+        result = queue.get_nowait()["trades"]
+        self.assertEqual([trade["tid"] for trade in result], list(range(49, 9, -1)))
+        self.assertNotIn("users", result[0])
+        feed.update_trades(trades)
+        self.assertTrue(queue.empty())
+        # Same tid at a different block time is a different execution.
+        feed.update_trades([{**trades[-1], "time": 100}])
+        self.assertEqual(queue.get_nowait()["trades"][0]["time"], 100)
+        for override in ({"coin": "ETH"}, {"side": "X"}, {"sz": "NaN"}):
+            with self.assertRaises(ValueError):
+                feed.update_trades([{**trades[-1], **override}])
+        self.assertEqual(len(feed.trades), 40)
 
     async def test_invalid_levels_and_slow_clients(self):
         for bids, asks in [

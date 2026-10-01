@@ -217,6 +217,13 @@ class BookLevel(BaseModel):
     sz: Decimal = Field(gt=0)
 
 
+class Trade(BookLevel):
+    coin: str = Field(exclude=True)
+    side: Literal["B", "A"]
+    time: int = Field(ge=0)
+    tid: int = Field(ge=0)
+
+
 class Book(BaseModel):
     coin: str
     time: int = Field(ge=0)
@@ -241,6 +248,7 @@ class OrderBookFeed(SharedFeed):
         self.coin = MARKETS[symbol]
         self.precision = precision
         self.book: Book | None = None
+        self.trades: dict[tuple[int, int], Trade] = {}
 
     def snapshot(self):
         return {
@@ -248,7 +256,23 @@ class OrderBookFeed(SharedFeed):
             "symbol": self.symbol,
             "status": self.status,
             "book": self.book.model_dump(mode="json") if self.book else None,
+            "trades": [trade.model_dump(mode="json") for trade in self.trades.values()],
         }
+
+    def update_trades(self, data):
+        trades = dict(self.trades)
+        for item in data:
+            trade = Trade.model_validate(item)
+            if trade.coin != self.coin:
+                raise ValueError(f"Expected {self.coin} trade")
+            trades[(trade.time, trade.tid)] = trade
+        trades = dict(sorted(trades.items(), reverse=True)[:40])
+        if trades != self.trades:
+            self.trades = trades
+            self.broadcast({
+                "type": "trades",
+                "trades": [trade.model_dump(mode="json") for trade in trades.values()],
+            })
 
     async def run(self):
         delay = 1
@@ -265,11 +289,21 @@ class OrderBookFeed(SharedFeed):
                             "fast": True,
                         },
                     }))
+                    await socket.send(json.dumps({
+                        "method": "subscribe",
+                        "subscription": {"type": "trades", "coin": self.coin},
+                    }))
+                    last_book_received = time.monotonic()
                     while True:
-                        raw = await asyncio.wait_for(socket.recv(), timeout=15)
+                        raw = await asyncio.wait_for(
+                            socket.recv(), timeout=max(0, 15 - (time.monotonic() - last_book_received))
+                        )
                         message = json.loads(raw)
                         if message.get("channel") == "error":
                             raise ValueError(message.get("data"))
+                        if message.get("channel") == "trades":
+                            self.update_trades(message["data"])
+                            continue
                         if message.get("channel") != "l2Book":
                             continue
                         book = Book.model_validate(message["data"])
@@ -278,13 +312,18 @@ class OrderBookFeed(SharedFeed):
                         if self.book is not None and book.time < self.book.time:
                             continue
                         self.book = book
+                        last_book_received = time.monotonic()
                         self.last_received_at = time.time()
                         self.status = "live"
-                        self.broadcast(self.snapshot())
+                        self.broadcast({
+                            "type": "book", "symbol": self.symbol, "status": self.status,
+                            "book": book.model_dump(mode="json"),
+                        })
                         delay = 1
             except (OSError, ConnectionClosed, TimeoutError, ValueError, KeyError) as error:
                 # Each message is a full snapshot; never show old depth during recovery.
                 self.book = None
+                self.trades.clear()
                 self.set_status("reconnecting")
                 logger.warning("%s book interrupted; retrying in %ss: %s", self.coin, delay, error)
                 await asyncio.sleep(delay)

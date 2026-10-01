@@ -1,15 +1,19 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './components/ui/select';
 
 type Level = { px: string; sz: string };
 type Book = { time: number; levels: [Level[], Level[]] };
+type Trade = Level & { side: 'B' | 'A'; time: number; tid: number };
 type Status = 'connecting' | 'live' | 'reconnecting';
 type Message =
-  | { type: 'book'; status: Status; book: Book | null }
+  | { type: 'book'; status: Status; book: Book | null; trades?: Trade[] }
+  | { type: 'trades'; trades: Trade[] }
   | { type: 'status'; status: Status };
 const priceFormat = new Intl.NumberFormat('en-US', { maximumFractionDigits: 6 });
 const baseFormat = new Intl.NumberFormat('en-US', { minimumFractionDigits: 5, maximumFractionDigits: 8 });
 const usdFormat = new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+const timeFormat = new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 
 export default function OrderBook({ symbol }: { symbol: string }) {
   const [precision, setPrecision] = useState('5');
@@ -17,16 +21,7 @@ export default function OrderBook({ symbol }: { symbol: string }) {
   const [book, setBook] = useState<Book | null>(null);
   const [status, setStatus] = useState<Status>('connecting');
   const [referencePrice, setReferencePrice] = useState<number | null>(null);
-  const [rowCount, setRowCount] = useState(11);
-  const depth = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const observer = new ResizeObserver(([entry]) => {
-      setRowCount(Math.max(1, Math.min(20, Math.floor((entry.contentRect.height - 28) / 48))));
-    });
-    observer.observe(depth.current!);
-    return () => observer.disconnect();
-  }, []);
+  const [trades, setTrades] = useState<Trade[]>([]);
 
   useEffect(() => {
     let socket: WebSocket;
@@ -36,18 +31,25 @@ export default function OrderBook({ symbol }: { symbol: string }) {
       socket = new WebSocket(`${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}/ws/book?symbol=${symbol}&precision=${precision}`);
       socket.onmessage = (event) => {
         const message: Message = JSON.parse(event.data);
+        if (message.type === 'trades') {
+          setTrades(message.trades);
+          return;
+        }
         setStatus(message.status);
         if (message.type === 'book') {
           setBook(message.book);
+          if (message.trades) setTrades(message.trades);
           const best = message.book?.levels[0][0] ?? message.book?.levels[1][0];
           if (best) setReferencePrice(Number(best.px));
         } else if (message.status !== 'live') {
           setBook(null);
+          setTrades([]);
         }
       };
       socket.onclose = () => {
         if (stopped) return;
         setBook(null);
+        setTrades([]);
         setStatus('reconnecting');
         retry = setTimeout(connect, 1500);
       };
@@ -68,7 +70,7 @@ export default function OrderBook({ symbol }: { symbol: string }) {
   const sizeFormat = unit === 'base' ? baseFormat : usdFormat;
   const sides = (book?.levels ?? [[], []]).map((levels) => {
     let total = 0;
-    return levels.slice(0, rowCount).map((level) => {
+    return levels.slice(0, 5).map((level) => {
       const price = Number(level.px);
       const size = Number(level.sz) * (unit === 'base' ? 1 : price);
       total += size;
@@ -102,6 +104,7 @@ export default function OrderBook({ symbol }: { symbol: string }) {
         <Select value={precision} onValueChange={(value) => {
           setPrecision(value);
           setBook(null);
+          setTrades([]);
           setStatus('connecting');
         }}>
           <SelectTrigger aria-label="Price grouping"><SelectValue /></SelectTrigger>
@@ -127,7 +130,7 @@ export default function OrderBook({ symbol }: { symbol: string }) {
           <span role="columnheader">Size ({unitLabel})</span>
           <span role="columnheader">Total ({unitLabel})</span>
         </div>
-        <div className="book-depth" ref={depth}>
+        <div className="book-depth">
           <div className="book-side asks" role="rowgroup" aria-label="Asks, sell orders">
             {rows([...asks].reverse(), 'ask')}
           </div>
@@ -143,6 +146,28 @@ export default function OrderBook({ symbol }: { symbol: string }) {
           {book && (!bids.length || !asks.length) && <p className="book-empty">{!bids.length && !asks.length ? 'No resting orders' : !bids.length ? 'No bids' : 'No asks'}</p>}
         </div>
       </div>
+      <section className="recent-trades" aria-label={`${symbol} recent trades`}>
+        <div className="book-heading"><h2>Recent trades</h2><span className="trade-hint">Latest 40</span></div>
+        <div className="trades-table" role="table" aria-label={`${symbol} executed trades`}>
+          <div className="trade-row book-columns" role="row">
+            <span role="columnheader">Side</span>
+            <span role="columnheader">Price</span>
+            <span role="columnheader">Size ({unitLabel})</span>
+            <span role="columnheader" title="Your local time">Time (local)</span>
+          </div>
+          <div className="trade-list" role="rowgroup" tabIndex={0} aria-label="Recent trades, newest first">
+            {trades.map((trade) => (
+              <div className={`trade-row ${trade.side === 'B' ? 'buy' : 'sell'}`} role="row" key={`${trade.time}:${trade.tid}`}>
+                <span role="cell" className="trade-side">{trade.side === 'B' ? 'Buy' : 'Sell'}</span>
+                <span role="cell" className="trade-price">{priceFormat.format(Number(trade.px))}</span>
+                <span role="cell">{sizeFormat.format(Number(trade.sz) * (unit === 'base' ? 1 : Number(trade.px)))}</span>
+                <time role="cell" dateTime={new Date(trade.time).toISOString()}>{timeFormat.format(trade.time)}</time>
+              </div>
+            ))}
+            {!trades.length && <p className="trades-empty">{status === 'reconnecting' ? 'Reconnecting to trades…' : 'Waiting for trades…'}</p>}
+          </div>
+        </div>
+      </section>
     </section>
   );
 }
