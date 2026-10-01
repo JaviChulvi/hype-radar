@@ -262,5 +262,41 @@ class RoutingTests(unittest.TestCase):
             self.assertEqual(app.state.feeds, {})
 
 
+class MarketChangesTests(unittest.TestCase):
+    def test_market_mapping_missing_prices_cache_and_outage_recovery(self):
+        failing = False
+
+        async def post(url, *, json):
+            if failing and json["dex"] == "xyz":
+                raise httpx.ConnectError("Unavailable")
+            names = ["ETH", "OTHER", "BTC"] if not json["dex"] else ["xyz:XYZ100", "xyz:BRENTOIL", "xyz:SP500"]
+            marks = ["90", "200", "110"] if not json["dex"] else ["100", "NaN", "150"]
+            previous = ["100"] * 3 if not json["dex"] else ["100", "100", "0"]
+            return httpx.Response(200, request=httpx.Request("POST", url), json=[
+                {"universe": [{"name": name} for name in names]},
+                [{"markPx": mark, "prevDayPx": prev} for mark, prev in zip(marks, previous)],
+            ])
+
+        with TestClient(app) as client:
+            with patch("main.httpx.AsyncClient.post", side_effect=post) as upstream:
+                changes = client.get("/api/markets").json()
+                self.assertEqual(set(changes), set(MARKETS))
+                self.assertAlmostEqual(changes["BTC"], 10)
+                self.assertAlmostEqual(changes["ETH"], -10)
+                self.assertEqual(changes["XYZ100"], 0)
+                self.assertIsNone(changes["SP500"])
+                self.assertIsNone(changes["BRENTOIL"])
+                self.assertEqual(client.get("/api/markets").json(), changes)
+                self.assertEqual(upstream.call_count, 2)
+                failing = True
+                app.state.market_changes_at = 0
+                partial = client.get("/api/markets").json()
+                self.assertIsNone(partial["XYZ100"])
+                self.assertAlmostEqual(partial["BTC"], 10)
+                failing = False
+                app.state.market_changes_at = 0
+                self.assertEqual(client.get("/api/markets").json(), changes)
+
+
 if __name__ == "__main__":
     unittest.main()

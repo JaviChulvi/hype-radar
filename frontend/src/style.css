@@ -10,7 +10,19 @@
 body { margin: 0; }
 main { height: 100dvh; display: flex; flex-direction: column; position: relative; }
 
-header {
+.site-header { padding: 0 28px; min-height: 58px; display: flex; align-items: center; border-bottom: 1px solid #34312b; flex-shrink: 0; }
+.site-header h1 { margin: 0; color: #e8e5dc; font-size: 20px; font-weight: 600; letter-spacing: -0.02em; }
+.market-strip { display: flex; align-items: center; padding: 0 16px 0 28px; border-bottom: 1px solid #34312b; flex-shrink: 0; font-size: 12px; }
+.market-period { padding-right: 16px; flex-shrink: 0; }
+.market-tickers { display: flex; overflow-x: auto; scrollbar-width: thin; scrollbar-color: #5c5951 #181713; }
+.market-ticker { display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 14px; border: 0; border-bottom: 2px solid transparent; background: transparent; color: #e8e5dc; font: inherit; white-space: nowrap; cursor: pointer; font-variant-numeric: tabular-nums; }
+.market-ticker[aria-pressed="true"] { border-bottom-color: #b39a6a; background: #25231e; }
+.market-ticker:hover { background: #25231e; }
+.market-ticker:focus-visible { outline: 2px solid #b39a6a; outline-offset: -3px; }
+.market-ticker .gain { color: #53ba91; }
+.market-ticker .loss { color: #ef718a; }
+
+.chart-header {
   display: flex;
   align-items: baseline;
   flex-wrap: wrap;
@@ -20,8 +32,8 @@ header {
   font-variant-numeric: tabular-nums;
 }
 
-h1 { font-size: inherit; font-weight: 400; margin: 0; display: flex; align-items: center; gap: 6px; }
-h1 span { color: #928f86; }
+.chart-controls { font-size: inherit; font-weight: 400; margin: 0; display: flex; align-items: center; gap: 6px; }
+.chart-controls span { color: #928f86; }
 .select-trigger {
   display: inline-flex; align-items: center; justify-content: space-between; gap: 12px;
   min-height: 44px; padding: 6px 10px; border: 1px solid #5c5951; border-radius: 6px;
@@ -63,8 +75,11 @@ a:hover { text-decoration: underline; }
 a:focus-visible { outline: 1px solid #928f86; outline-offset: 4px; }
 
 @media (max-width: 600px) {
-  header { padding: 18px 16px 12px; gap: 8px; }
-  h1 { flex-basis: 100%; flex-wrap: wrap; font-size: 18px; }
+  .site-header { padding: 0 16px; min-height: 54px; }
+  .market-strip { padding: 0 0 0 16px; }
+  .market-period { padding-right: 10px; }
+  .chart-header { padding: 18px 16px 12px; gap: 8px; }
+  .chart-controls { flex-basis: 100%; flex-wrap: wrap; font-size: 18px; }
   .price { font-size: 22px; }
   .chart { margin: 0 4px; }
   footer { padding: 8px 14px; flex-direction: column; gap: 3px; }

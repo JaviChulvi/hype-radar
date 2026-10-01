@@ -56,6 +56,8 @@ Open **http://127.0.0.1:5173**. The frontend proxies `/ws/candles?symbol=BTC&int
 
 To check the frontend's types and production build, run `npm run build` in `frontend/`. No API keys are required.
 
+The header's market strip shows each picker's instrument and its 24-hour perpetual mark-price change, calculated as `(markPx / prevDayPx - 1) * 100` from Hyperliquid's `metaAndAssetCtxs` (native and `xyz` markets). This is independent of the candle interval and is not an underlying stock's official daily return. Clicking an instrument selects its chart. The frontend refreshes `/api/markets` every 15 seconds after each response; the backend shares results for 10 seconds. Missing or failed market data appears as `—`, with automatic retry.
+
 The Select component is adapted from [shadcn/ui](https://ui.shadcn.com/docs/components/radix/select) to the existing CSS. Market icons are bundled locally from Hyperdash's public `/icons/` assets: [BTC](https://hyperdash.com/icons/BTC.svg), [ETH](https://hyperdash.com/icons/ETH.svg), [SP500](https://hyperdash.com/icons/SP500.png), [XYZ100](https://hyperdash.com/icons/XYZ100.png), and [BRENTOIL](https://hyperdash.com/icons/BRENTOIL.png).
 
 Run the backend regression tests with `uv run python -m unittest -v` in `backend/`.

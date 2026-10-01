@@ -1,15 +1,21 @@
 import asyncio
+import math
+import time
 from contextlib import asynccontextmanager
 
+import httpx
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 
-from feed import CandleFeed, Interval, Symbol
+from feed import MARKETS, CandleFeed, Interval, Symbol
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     app.state.feeds = {}
     app.state.feed_tasks = {}
+    app.state.market_changes = {}
+    app.state.market_changes_at = 0
+    app.state.market_lock = asyncio.Lock()
     try:
         yield
     finally:
@@ -19,6 +25,47 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Hype Radar", lifespan=lifespan)
+
+
+@app.get("/api/markets")
+async def market_changes():
+    async with app.state.market_lock:
+        if time.monotonic() - app.state.market_changes_at < 10:
+            return app.state.market_changes
+        changes = dict.fromkeys(MARKETS)
+        async with httpx.AsyncClient(timeout=10) as http:
+            async def load(dex):
+                try:
+                    response = await http.post(
+                        "https://api.hyperliquid.xyz/info",
+                        json={"type": "metaAndAssetCtxs", "dex": dex},
+                    )
+                    response.raise_for_status()
+                    meta, contexts = response.json()
+                    by_coin = {
+                        asset["name"]: ctx
+                        for asset, ctx in zip(meta["universe"], contexts, strict=True)
+                    }
+                except (httpx.HTTPError, ValueError, KeyError, TypeError):
+                    return
+                for symbol, coin in MARKETS.items():
+                    if coin not in by_coin:
+                        continue
+                    try:
+                        mark = float(by_coin[coin]["markPx"])
+                        previous = float(by_coin[coin]["prevDayPx"])
+                        if mark > 0 and previous > 0 and math.isfinite(mark) and math.isfinite(previous):
+                            change = (mark / previous - 1) * 100
+                            if math.isfinite(change):
+                                changes[symbol] = change
+                    except (ValueError, KeyError, TypeError):
+                        continue
+
+            dexes = {coin.split(":")[0] if ":" in coin else "" for coin in MARKETS.values()}
+            await asyncio.gather(*(load(dex) for dex in dexes))
+        app.state.market_changes = changes
+        app.state.market_changes_at = time.monotonic()
+        return changes
 
 
 @app.get("/health")
