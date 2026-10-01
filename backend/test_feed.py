@@ -2,6 +2,7 @@ import asyncio
 import json
 import unittest
 from itertools import product
+from threading import Event
 from unittest.mock import AsyncMock, patch
 
 import httpx
@@ -207,20 +208,41 @@ class RoutingTests(unittest.TestCase):
                             self.assertEqual(socket.receive_json()["symbol"], symbol)
                             self.assertIsNot(app.state.feeds[f"{symbol}:5m"], app.state.feeds["BTC:5m"])
                             socket.close()
-                            self.assertEqual(client.get("/health").json()["markets"][f"{symbol}:5m"]["clients"], 0)
+                            self.assertNotIn(f"{symbol}:5m", client.get("/health").json()["markets"])
                     with client.websocket_connect("/ws/candles?symbol=BTC&interval=1M") as monthly:
                         self.assertEqual(monthly.receive_json()["interval"], "1M")
                         self.assertEqual(len(app.state.feeds["BTC:5m"].clients), 2)
                         self.assertEqual(len(app.state.feeds["BTC:1M"].clients), 1)
                         monthly.close()
-                        self.assertEqual(client.get("/health").json()["markets"]["BTC:1M"]["clients"], 0)
-                    self.assertEqual(len(app.state.feed_tasks), 6)
+                        self.assertNotIn("BTC:1M", client.get("/health").json()["markets"])
+                    self.assertEqual(len(app.state.feed_tasks), 1)
                     second.close()
                     self.assertEqual(client.get("/health").json()["markets"]["BTC:5m"]["clients"], 1)
                 first.close()
-                self.assertEqual(client.get("/health").json()["markets"]["BTC:5m"]["clients"], 0)
-            self.assertEqual(set(client.get("/health").json()["markets"]), {f"{symbol}:5m" for symbol in MARKETS} | {"BTC:1M"})
-        self.assertTrue(all(task.done() for task in app.state.feed_tasks))
+                self.assertEqual(client.get("/health").json()["markets"], {})
+            self.assertEqual(app.state.feed_tasks, {})
+
+    def test_switching_intervals_stops_unused_feeds_and_reopens_them(self):
+        stopped = Event()
+
+        async def idle(feed):
+            try:
+                await asyncio.Event().wait()
+            finally:
+                stopped.set()
+
+        with patch("main.CandleFeed.run", idle), TestClient(app) as client:
+            for interval in [*INTERVAL_MS, "5m"]:
+                stopped.clear()
+                with client.websocket_connect(f"/ws/candles?interval={interval}") as socket:
+                    self.assertEqual(socket.receive_json()["interval"], interval)
+                    self.assertEqual(len(app.state.feeds), 1)
+                    task = app.state.feed_tasks[f"BTC:{interval}"]
+                    socket.close()
+                    self.assertTrue(stopped.wait(2), "Unused ingestion was not stopped")
+                    self.assertEqual(client.get("/health").json()["markets"], {})
+                    self.assertTrue(task.cancelled())
+                    self.assertEqual(app.state.feed_tasks, {})
 
     def test_unsupported_interval_is_rejected_without_starting_a_feed(self):
         with TestClient(app) as client:

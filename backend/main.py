@@ -9,13 +9,13 @@ from feed import CandleFeed, Interval, Symbol
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     app.state.feeds = {}
-    app.state.feed_tasks = []
+    app.state.feed_tasks = {}
     try:
         yield
     finally:
-        for task in app.state.feed_tasks:
+        for task in app.state.feed_tasks.values():
             task.cancel()
-        await asyncio.gather(*app.state.feed_tasks, return_exceptions=True)
+        await asyncio.gather(*app.state.feed_tasks.values(), return_exceptions=True)
 
 
 app = FastAPI(title="Hype Radar", lifespan=lifespan)
@@ -42,7 +42,7 @@ async def candles(websocket: WebSocket, symbol: Symbol = "BTC", interval: Interv
     key = f"{symbol}:{interval}"
     if key not in app.state.feeds:
         app.state.feeds[key] = CandleFeed(symbol, interval)
-        app.state.feed_tasks.append(asyncio.create_task(app.state.feeds[key].run()))
+        app.state.feed_tasks[key] = asyncio.create_task(app.state.feeds[key].run())
     feed = app.state.feeds[key]
     queue = feed.subscribe()
 
@@ -69,6 +69,9 @@ async def candles(websocket: WebSocket, symbol: Symbol = "BTC", interval: Interv
         await websocket.close(code=1013)
     finally:
         feed.clients.discard(queue)
+        if not feed.clients and app.state.feeds.get(key) is feed:
+            del app.state.feeds[key]
+            tasks.append(app.state.feed_tasks.pop(key))
         for task in tasks:
             task.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)
