@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import OrderBook from './OrderBook';
 import {
   CandlestickSeries, ColorType, CrosshairMode, LineStyle, createChart,
   type CandlestickData, type UTCTimestamp,
@@ -155,46 +156,51 @@ export default function App() {
           })}
         </div>
       </section>
-      <div className="chart-header">
-        <div className="chart-controls">
-          <Select value={symbol} onValueChange={(value) => selectMarket(value as Symbol)}>
-            <SelectTrigger aria-label="Select market"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              {markets.map((market) => (
-                <SelectItem key={market} value={market}>
-                  <span className="market-label">
-                    <img src={`/icons/${market}.${market === 'BTC' || market === 'ETH' ? 'svg' : 'png'}`} width={24} height={24} alt="" />
-                    {market}
-                  </span>
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <span> / USD · </span>
-          <Select value={interval} onValueChange={(value) => {
-            setInterval(value as Interval);
-            setLatest(null);
-            setStatus('connecting');
-          }}>
-            <SelectTrigger aria-label="Select time interval"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              {intervals.map((value) => (
-                <SelectItem key={value} value={value}>{value}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <span> · Hyperliquid</span>
-        </div>
-        <span className={`price ${rising ? 'up' : 'down'}`}>
-          {latest ? formatPrice.format(Number(latest.close)) : '—'}
-        </span>
-        <span className={`status ${status}`} role="status">
-          <i aria-hidden="true" />
-          {status === 'live' ? 'Live' : status === 'connecting' ? 'Connecting' : 'Reconnecting'}
-        </span>
+      <div className="market-workspace">
+        <section className="chart-pane" aria-label="Price chart">
+          <div className="chart-header">
+            <div className="chart-controls">
+              <Select value={symbol} onValueChange={(value) => selectMarket(value as Symbol)}>
+                <SelectTrigger aria-label="Select market"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {markets.map((market) => (
+                    <SelectItem key={market} value={market}>
+                      <span className="market-label">
+                        <img src={`/icons/${market}.${market === 'BTC' || market === 'ETH' ? 'svg' : 'png'}`} width={24} height={24} alt="" />
+                        {market}
+                      </span>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <span> / USD · </span>
+              <Select value={interval} onValueChange={(value) => {
+                setInterval(value as Interval);
+                setLatest(null);
+                setStatus('connecting');
+              }}>
+                <SelectTrigger aria-label="Select time interval"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {intervals.map((value) => (
+                    <SelectItem key={value} value={value}>{value}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <span> · Hyperliquid</span>
+            </div>
+            <span className={`price ${rising ? 'up' : 'down'}`}>
+              {latest ? formatPrice.format(Number(latest.close)) : '—'}
+            </span>
+            <span className={`status ${status}`} role="status">
+              <i aria-hidden="true" />
+              {status === 'live' ? 'Live' : status === 'connecting' ? 'Connecting' : 'Reconnecting'}
+            </span>
+          </div>
+          <div className="chart" ref={container} role="img" aria-label={`Live ${symbol} perpetual ${interval} candlestick chart`} />
+          {!latest && <p className="loading">Loading {symbol} {interval} candles…</p>}
+        </section>
+        <OrderBook key={symbol} symbol={symbol} />
       </div>
-      <div className="chart" ref={container} role="img" aria-label={`Live ${symbol} perpetual ${interval} candlestick chart`} />
-      {!latest && <p className="loading">Loading {symbol} {interval} candles…</p>}
       <footer>
         <a href="https://www.tradingview.com/" target="_blank" rel="noreferrer">
           Charts by TradingView

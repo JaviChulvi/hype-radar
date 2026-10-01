@@ -13,7 +13,7 @@ from websockets.asyncio.server import serve
 from websockets.datastructures import Headers
 from websockets.http11 import Response
 
-from feed import CandleFeed, HISTORY_SIZE, INTERVAL_MS, MARKETS
+from feed import HISTORY_SIZE, INTERVAL_MS, MARKETS, Book, CandleFeed, OrderBookFeed
 from main import app
 
 DAY = 86_400_000
@@ -260,6 +260,100 @@ class RoutingTests(unittest.TestCase):
                     pass
             self.assertEqual(error.exception.code, 1008)
             self.assertEqual(app.state.feeds, {})
+
+
+class OrderBookTests(unittest.IsolatedAsyncioTestCase):
+    async def test_snapshots_replace_depth_reject_older_data_and_recover(self):
+        messages = asyncio.Queue()
+        subscriptions = []
+
+        class Socket:
+            async def send(self, message):
+                subscriptions.append(json.loads(message)["subscription"])
+
+            async def recv(self):
+                item = await messages.get()
+                if isinstance(item, Exception):
+                    raise item
+                return json.dumps({"channel": "l2Book", "data": item})
+
+        async def connection(*args, **kwargs):
+            yield Socket()
+
+        def book(timestamp, levels):
+            return {"coin": "xyz:SP500", "time": timestamp, "levels": levels}
+
+        with patch("feed.connect", connection):
+            feed = OrderBookFeed("SP500", "4")
+            queue = feed.subscribe()
+            self.assertIsNone(queue.get_nowait()["book"])
+            task = asyncio.create_task(feed.run())
+            try:
+                first = book(10, [[{"px": "100", "sz": "1"}, {"px": "99", "sz": "2"}], [{"px": "101", "sz": "3"}]])
+                await messages.put(first)
+                snapshot = await asyncio.wait_for(queue.get(), 2)
+                self.assertEqual(snapshot["status"], "live")
+                self.assertEqual(subscriptions[0], {"type": "l2Book", "coin": "xyz:SP500", "nSigFigs": 4})
+                await messages.put(book(9, [[], []]))
+                await messages.put(book(11, [[{"px": "98", "sz": "4"}], []]))
+                updated = await asyncio.wait_for(queue.get(), 2)
+                self.assertEqual(updated["book"]["time"], 11)
+                self.assertEqual(updated["book"]["levels"], [[{"px": "98", "sz": "4"}], []])
+                await messages.put(OSError("lost connection"))
+                self.assertEqual((await asyncio.wait_for(queue.get(), 2))["status"], "reconnecting")
+                self.assertIsNone(feed.subscribe().get_nowait()["book"])
+                await messages.put(book(12, [[], []]))
+                self.assertEqual((await asyncio.wait_for(queue.get(), 3))["book"]["levels"], [[], []])
+                self.assertEqual(len(subscriptions), 2)
+            finally:
+                task.cancel()
+                await asyncio.gather(task, return_exceptions=True)
+
+    async def test_invalid_levels_and_slow_clients(self):
+        for bids, asks in [
+            ([{"px": "NaN", "sz": "1"}], []),
+            ([{"px": "1", "sz": "Infinity"}], []),
+            ([{"px": "1", "sz": "-1"}], []),
+            ([{"px": "2", "sz": "1"}], [{"px": "1", "sz": "1"}]),
+            ([{"px": "1", "sz": "1"}, {"px": "2", "sz": "1"}], []),
+        ]:
+            with self.assertRaises(ValueError):
+                Book.model_validate({"coin": "BTC", "time": 1, "levels": [bids, asks]})
+        feed = OrderBookFeed()
+        queue = feed.subscribe()
+        for _ in range(32):
+            feed.broadcast(feed.snapshot())
+        self.assertIsNone(queue.get_nowait())
+        self.assertNotIn(queue, feed.clients)
+
+
+class BookRoutingTests(unittest.TestCase):
+    def test_sharing_precision_isolation_and_last_viewer_cleanup(self):
+        async def idle(feed):
+            await asyncio.Event().wait()
+
+        with patch("main.OrderBookFeed.run", idle), TestClient(app) as client:
+            with client.websocket_connect("/ws/book") as first:
+                self.assertEqual(first.receive_json()["symbol"], "BTC")
+                with client.websocket_connect("/ws/book") as second:
+                    second.receive_json()
+                    self.assertEqual(len(app.state.feed_tasks), 1)
+                    self.assertEqual(client.get("/health").json()["order_books"]["book:BTC:5"]["clients"], 2)
+                    with client.websocket_connect("/ws/book?precision=4&symbol=ETH") as other:
+                        self.assertEqual(other.receive_json()["symbol"], "ETH")
+                        task = app.state.feed_tasks["book:ETH:4"]
+                        other.close()
+                        self.assertNotIn("book:ETH:4", client.get("/health").json()["order_books"])
+                        self.assertTrue(task.cancelled())
+                    second.close()
+                    self.assertEqual(client.get("/health").json()["order_books"]["book:BTC:5"]["clients"], 1)
+                first.close()
+                self.assertEqual(client.get("/health").json()["order_books"], {})
+                self.assertEqual(app.state.feed_tasks, {})
+            for query in ("precision=6", "symbol=DOGE"):
+                with self.assertRaises(WebSocketDisconnect), client.websocket_connect(f"/ws/book?{query}"):
+                    pass
+                self.assertEqual(app.state.feeds, {})
 
 
 class MarketChangesTests(unittest.TestCase):

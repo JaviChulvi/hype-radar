@@ -53,24 +53,11 @@ class Candle(BaseModel):
         return self
 
 
-class CandleFeed:
-    def __init__(self, symbol: Symbol = "BTC", interval: Interval = "5m"):
-        self.symbol = symbol
-        self.interval = interval
-        self.coin = MARKETS[symbol]
-        self.candles: dict[int, Candle] = {}
+class SharedFeed:
+    def __init__(self):
         self.clients: set[asyncio.Queue] = set()
         self.status = "connecting"
         self.last_received_at: float | None = None
-
-    def snapshot(self):
-        return {
-            "type": "snapshot",
-            "symbol": self.symbol,
-            "interval": self.interval,
-            "status": self.status,
-            "candles": [c.model_dump(mode="json") for c in self.candles.values()],
-        }
 
     def subscribe(self):
         queue = asyncio.Queue(maxsize=32)
@@ -92,6 +79,24 @@ class CandleFeed:
     def set_status(self, status):
         self.status = status
         self.broadcast({"type": "status", "status": status})
+
+
+class CandleFeed(SharedFeed):
+    def __init__(self, symbol: Symbol = "BTC", interval: Interval = "5m"):
+        super().__init__()
+        self.symbol = symbol
+        self.interval = interval
+        self.coin = MARKETS[symbol]
+        self.candles: dict[int, Candle] = {}
+
+    def snapshot(self):
+        return {
+            "type": "snapshot",
+            "symbol": self.symbol,
+            "interval": self.interval,
+            "status": self.status,
+            "candles": [c.model_dump(mode="json") for c in self.candles.values()],
+        }
 
     def parse_candle(self, data):
         candle = Candle.model_validate(data)
@@ -200,3 +205,86 @@ class CandleFeed:
                     )
                     await asyncio.sleep(delay)
                     delay = min(delay * 2, 30)
+
+
+BookPrecision = Literal["5", "4", "3", "2"]
+
+
+class BookLevel(BaseModel):
+    model_config = ConfigDict(allow_inf_nan=False)
+
+    px: Decimal = Field(gt=0)
+    sz: Decimal = Field(gt=0)
+
+
+class Book(BaseModel):
+    coin: str
+    time: int = Field(ge=0)
+    levels: tuple[list[BookLevel], list[BookLevel]]
+
+    @model_validator(mode="after")
+    def validate_levels(self):
+        bids, asks = self.levels
+        for levels, reverse in ((bids, True), (asks, False)):
+            prices = [level.px for level in levels]
+            if prices != sorted(set(prices), reverse=reverse):
+                raise ValueError("Unordered or duplicate book levels")
+        if bids and asks and bids[0].px >= asks[0].px:
+            raise ValueError("Crossed order book")
+        return self
+
+
+class OrderBookFeed(SharedFeed):
+    def __init__(self, symbol: Symbol = "BTC", precision: BookPrecision = "5"):
+        super().__init__()
+        self.symbol = symbol
+        self.coin = MARKETS[symbol]
+        self.precision = precision
+        self.book: Book | None = None
+
+    def snapshot(self):
+        return {
+            "type": "book",
+            "symbol": self.symbol,
+            "status": self.status,
+            "book": self.book.model_dump(mode="json") if self.book else None,
+        }
+
+    async def run(self):
+        delay = 1
+        while True:
+            try:
+                async for socket in connect(
+                    "wss://api.hyperliquid.xyz/ws", open_timeout=10
+                ):
+                    await socket.send(json.dumps({
+                        "method": "subscribe",
+                        "subscription": {
+                            "type": "l2Book", "coin": self.coin,
+                            "nSigFigs": int(self.precision),
+                        },
+                    }))
+                    while True:
+                        raw = await asyncio.wait_for(socket.recv(), timeout=15)
+                        message = json.loads(raw)
+                        if message.get("channel") == "error":
+                            raise ValueError(message.get("data"))
+                        if message.get("channel") != "l2Book":
+                            continue
+                        book = Book.model_validate(message["data"])
+                        if book.coin != self.coin:
+                            raise ValueError(f"Expected {self.coin} book")
+                        if self.book is not None and book.time < self.book.time:
+                            continue
+                        self.book = book
+                        self.last_received_at = time.time()
+                        self.status = "live"
+                        self.broadcast(self.snapshot())
+                        delay = 1
+            except (OSError, ConnectionClosed, TimeoutError, ValueError, KeyError) as error:
+                # Each message is a full snapshot; never show old depth during recovery.
+                self.book = None
+                self.set_status("reconnecting")
+                logger.warning("%s book interrupted; retrying in %ss: %s", self.coin, delay, error)
+                await asyncio.sleep(delay)
+                delay = min(delay * 2, 30)
