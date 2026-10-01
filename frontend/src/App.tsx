@@ -18,6 +18,7 @@ type Message =
   | { type: 'status'; status: Status };
 
 const formatPrice = new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 });
+const formatChange = new Intl.NumberFormat('en-US', { style: 'percent', signDisplay: 'exceptZero', minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const toBar = (candle: Candle): CandlestickData<UTCTimestamp> => ({
   time: Math.floor(candle.time / 1000) as UTCTimestamp,
   open: Number(candle.open), high: Number(candle.high),
@@ -30,6 +31,33 @@ export default function App() {
   const container = useRef<HTMLDivElement>(null);
   const [status, setStatus] = useState<Status>('connecting');
   const [latest, setLatest] = useState<Candle | null>(null);
+  const [changes, setChanges] = useState<Partial<Record<Symbol, number | null>>>({});
+
+  function selectMarket(value: Symbol) {
+    if (value === symbol) return;
+    setSymbol(value);
+    setLatest(null);
+    setStatus('connecting');
+  }
+
+  useEffect(() => {
+    const controller = new AbortController();
+    let timer: ReturnType<typeof setTimeout>;
+    async function refresh() {
+      try {
+        const response = await fetch('/api/markets', { signal: AbortSignal.any([controller.signal, AbortSignal.timeout(12_000)]) });
+        if (!response.ok) throw new Error('Market data unavailable');
+        const data = await response.json();
+        if (!controller.signal.aborted) setChanges(data);
+      } catch {
+        if (!controller.signal.aborted) setChanges({});
+      } finally {
+        if (!controller.signal.aborted) timer = setTimeout(refresh, 15_000);
+      }
+    }
+    void refresh();
+    return () => { controller.abort(); clearTimeout(timer); };
+  }, []);
 
   useEffect(() => {
     document.title = `${symbol} · ${interval} · Hype Radar`;
@@ -108,13 +136,28 @@ export default function App() {
 
   return (
     <main>
-      <header>
-        <h1>
-          <Select value={symbol} onValueChange={(value) => {
-            setSymbol(value as Symbol);
-            setLatest(null);
-            setStatus('connecting');
-          }}>
+      <header className="site-header"><h1>Hype Radar</h1></header>
+      <section className="market-strip" aria-label="Market performance over 24 hours">
+        <span className="market-period" title="24-hour change in perpetual mark price">24h</span>
+        <div className="market-tickers">
+          {markets.map((market) => {
+            const change = changes[market];
+            const available = typeof change === 'number' && Number.isFinite(change);
+            const formatted = available ? formatChange.format(change / 100) : '—';
+            return (
+              <button key={market} type="button" className="market-ticker" aria-pressed={market === symbol}
+                aria-label={`${market}, 24-hour change ${available ? formatted : 'unavailable'}`}
+                onClick={() => selectMarket(market)}>
+                <span>{market}</span>
+                <span className={available ? change > 0 ? 'gain' : change < 0 ? 'loss' : '' : ''}>{formatted}</span>
+              </button>
+            );
+          })}
+        </div>
+      </section>
+      <div className="chart-header">
+        <div className="chart-controls">
+          <Select value={symbol} onValueChange={(value) => selectMarket(value as Symbol)}>
             <SelectTrigger aria-label="Select market"><SelectValue /></SelectTrigger>
             <SelectContent>
               {markets.map((market) => (
@@ -141,7 +184,7 @@ export default function App() {
             </SelectContent>
           </Select>
           <span> · Hyperliquid</span>
-        </h1>
+        </div>
         <span className={`price ${rising ? 'up' : 'down'}`}>
           {latest ? formatPrice.format(Number(latest.close)) : '—'}
         </span>
@@ -149,7 +192,7 @@ export default function App() {
           <i aria-hidden="true" />
           {status === 'live' ? 'Live' : status === 'connecting' ? 'Connecting' : 'Reconnecting'}
         </span>
-      </header>
+      </div>
       <div className="chart" ref={container} role="img" aria-label={`Live ${symbol} perpetual ${interval} candlestick chart`} />
       {!latest && <p className="loading">Loading {symbol} {interval} candles…</p>}
       <footer>
