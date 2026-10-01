@@ -6,7 +6,7 @@ from contextlib import asynccontextmanager
 import httpx
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 
-from feed import MARKETS, CandleFeed, Interval, Symbol
+from feed import MARKETS, BookPrecision, CandleFeed, Interval, OrderBookFeed, Symbol
 
 
 @asynccontextmanager
@@ -78,17 +78,33 @@ async def health():
                 "clients": len(feed.clients),
                 "last_received_at": feed.last_received_at,
             }
-            for key, feed in app.state.feeds.items()
+            for key, feed in app.state.feeds.items() if isinstance(feed, CandleFeed)
+        },
+        "order_books": {
+            key: {
+                "status": feed.status,
+                "clients": len(feed.clients),
+                "last_received_at": feed.last_received_at,
+            }
+            for key, feed in app.state.feeds.items() if isinstance(feed, OrderBookFeed)
         }
     }
 
 
 @app.websocket("/ws/candles")
 async def candles(websocket: WebSocket, symbol: Symbol = "BTC", interval: Interval = "5m"):
+    await stream_feed(websocket, f"{symbol}:{interval}", CandleFeed(symbol, interval))
+
+
+@app.websocket("/ws/book")
+async def order_book(websocket: WebSocket, symbol: Symbol = "BTC", precision: BookPrecision = "5"):
+    await stream_feed(websocket, f"book:{symbol}:{precision}", OrderBookFeed(symbol, precision))
+
+
+async def stream_feed(websocket: WebSocket, key: str, candidate: CandleFeed | OrderBookFeed):
     await websocket.accept()
-    key = f"{symbol}:{interval}"
     if key not in app.state.feeds:
-        app.state.feeds[key] = CandleFeed(symbol, interval)
+        app.state.feeds[key] = candidate
         app.state.feed_tasks[key] = asyncio.create_task(app.state.feeds[key].run())
     feed = app.state.feeds[key]
     queue = feed.subscribe()
