@@ -32,7 +32,7 @@ The first release will focus on a small basket of markets, potentially HYPE and 
 
 ## Run locally
 
-The first implementation streams Hyperliquid BTC perpetual daily candles through FastAPI to a React chart. One shared ingestion task serves every browser; the latest 200 candles stay in memory.
+The chart streams Hyperliquid daily perpetual candles for BTC, ETH, SP500, XYZ100, and BRENTOIL through FastAPI. Use the shadcn/ui market selector in the header to switch markets. SP500, XYZ100, and BRENTOIL use the trade[XYZ] markets (`xyz:SP500`, `xyz:XYZ100`, and `xyz:BRENTOIL`). One shared ingestion task per requested market serves every browser; the latest 200 candles per market stay in memory.
 
 Requirements: Python 3.12+, [uv](https://docs.astral.sh/uv/), and Node.js 22.12+.
 
@@ -52,9 +52,11 @@ npm ci
 npm run dev
 ```
 
-Open **http://127.0.0.1:5173**. The frontend proxies `/ws/btc` and `/health` to the backend. Run one backend worker to retain one exchange connection. History is loaded on startup and refreshed after upstream reconnection; the chart preserves its last data while reconnecting.
+Open **http://127.0.0.1:5173**. The frontend proxies `/ws/candles?symbol=BTC` and `/health` to the backend. The `symbol` parameter accepts `BTC` (default), `ETH`, `SP500`, `XYZ100`, or `BRENTOIL`; unsupported symbols are rejected. Run one backend worker to retain one exchange connection per market. A market's feed starts when first requested and stays available until shutdown. History is loaded on first request and refreshed after upstream reconnection; the chart preserves its last data while reconnecting and clears it when switching markets. `/health` reports feed status per requested market.
 
 To check the frontend's types and production build, run `npm run build` in `frontend/`. No API keys are required.
+
+The Select component is adapted from [shadcn/ui](https://ui.shadcn.com/docs/components/radix/select) to the existing CSS. Market icons are bundled locally from Hyperdash's public `/icons/` assets: [BTC](https://hyperdash.com/icons/BTC.svg), [ETH](https://hyperdash.com/icons/ETH.svg), [SP500](https://hyperdash.com/icons/SP500.png), [XYZ100](https://hyperdash.com/icons/XYZ100.png), and [BRENTOIL](https://hyperdash.com/icons/BRENTOIL.png).
 
 Run the backend regression tests with `uv run python -m unittest -v` in `backend/`.
 

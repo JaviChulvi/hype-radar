@@ -4,12 +4,15 @@ import unittest
 from unittest.mock import AsyncMock, patch
 
 import httpx
+from fastapi.testclient import TestClient
+from starlette.websockets import WebSocketDisconnect
 from websockets.asyncio.client import connect
 from websockets.asyncio.server import serve
 from websockets.datastructures import Headers
 from websockets.http11 import Response
 
-from feed import BitcoinFeed
+from feed import CandleFeed, MARKETS
+from main import app
 
 DAY = 86_400_000
 
@@ -33,6 +36,40 @@ class FeedTests(unittest.IsolatedAsyncioTestCase):
             message = await asyncio.wait_for(queue.get(), 15)
             if message["type"] == "snapshot" and message["status"] == "live":
                 return message
+
+    async def test_each_market_uses_its_coin_for_history_and_subscription(self):
+        for symbol, coin in MARKETS.items():
+            with self.subTest(symbol=symbol):
+                socket = AsyncMock()
+
+                async def receive():
+                    await asyncio.Event().wait()
+
+                socket.recv.side_effect = receive
+
+                async def connection(*args, **kwargs):
+                    yield socket
+
+                data = {**candle(DAY, 2), "s": coin}
+                http = AsyncMock()
+                http.__aenter__.return_value = http
+                http.post.return_value = httpx.Response(
+                    200, json=[data], request=httpx.Request("POST", "https://example.test/info")
+                )
+                with patch("feed.connect", connection), patch("feed.httpx.AsyncClient", return_value=http):
+                    feed = CandleFeed(symbol)
+                    queue = feed.subscribe()
+                    task = asyncio.create_task(feed.run())
+                    try:
+                        snapshot = await self.snapshot(queue)
+                        self.assertEqual(snapshot["symbol"], symbol)
+                        self.assertEqual(json.loads(socket.send.call_args.args[0])["subscription"]["coin"], coin)
+                        self.assertEqual(http.post.call_args.kwargs["json"]["req"]["coin"], coin)
+                        with self.assertRaises(ValueError):
+                            feed.parse_candle({**data, "s": "ETH" if coin == "BTC" else "BTC"})
+                    finally:
+                        task.cancel()
+                        await asyncio.gather(task, return_exceptions=True)
 
     async def test_retry_http_503_handshake(self):
         attempts = 0
@@ -66,7 +103,7 @@ class FeedTests(unittest.IsolatedAsyncioTestCase):
                 patch("feed.connect", local_connect),
                 patch("feed.httpx.AsyncClient", return_value=http),
             ):
-                feed = BitcoinFeed()
+                feed = CandleFeed()
                 queue = feed.subscribe()
                 task = asyncio.create_task(feed.run())
                 try:
@@ -115,7 +152,7 @@ class FeedTests(unittest.IsolatedAsyncioTestCase):
                     patch("feed.connect", connection),
                     patch("feed.httpx.AsyncClient", return_value=http),
                 ):
-                    feed = BitcoinFeed()
+                    feed = CandleFeed()
                     queue = feed.subscribe()
                     task = asyncio.create_task(feed.run())
                     try:
@@ -141,6 +178,41 @@ class FeedTests(unittest.IsolatedAsyncioTestCase):
                     finally:
                         task.cancel()
                         await asyncio.gather(task, return_exceptions=True)
+
+
+class RoutingTests(unittest.TestCase):
+    def test_feeds_are_shared_per_market_and_isolated_between_markets(self):
+        async def idle(feed):
+            await asyncio.Event().wait()
+
+        with patch("main.CandleFeed.run", idle), TestClient(app) as client:
+            with client.websocket_connect("/ws/candles") as first:
+                self.assertEqual(first.receive_json()["symbol"], "BTC")
+                with client.websocket_connect("/ws/candles?symbol=BTC") as second:
+                    self.assertEqual(second.receive_json()["symbol"], "BTC")
+                    self.assertEqual(len(app.state.feed_tasks), 1)
+                    self.assertEqual(len(app.state.feeds["BTC"].clients), 2)
+                    for symbol in ("ETH", "SP500", "XYZ100", "BRENTOIL"):
+                        with client.websocket_connect(f"/ws/candles?symbol={symbol}") as socket:
+                            self.assertEqual(socket.receive_json()["symbol"], symbol)
+                            self.assertIsNot(app.state.feeds[symbol], app.state.feeds["BTC"])
+                            socket.close()
+                            self.assertEqual(client.get("/health").json()["markets"][symbol]["clients"], 0)
+                    self.assertEqual(len(app.state.feed_tasks), 5)
+                    second.close()
+                    self.assertEqual(client.get("/health").json()["markets"]["BTC"]["clients"], 1)
+                first.close()
+                self.assertEqual(client.get("/health").json()["markets"]["BTC"]["clients"], 0)
+            self.assertEqual(set(client.get("/health").json()["markets"]), set(MARKETS))
+        self.assertTrue(all(task.done() for task in app.state.feed_tasks))
+
+    def test_unsupported_market_is_rejected_without_starting_a_feed(self):
+        with TestClient(app) as client:
+            with self.assertRaises(WebSocketDisconnect) as error:
+                with client.websocket_connect("/ws/candles?symbol=DOGE"):
+                    pass
+            self.assertEqual(error.exception.code, 1008)
+            self.assertEqual(app.state.feeds, {})
 
 
 if __name__ == "__main__":

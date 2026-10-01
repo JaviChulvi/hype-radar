@@ -3,6 +3,10 @@ import {
   CandlestickSeries, ColorType, CrosshairMode, LineStyle, createChart,
   type CandlestickData, type UTCTimestamp,
 } from 'lightweight-charts';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './components/ui/select';
+
+const markets = ['BTC', 'ETH', 'SP500', 'XYZ100', 'BRENTOIL'] as const;
+type Symbol = typeof markets[number];
 
 type Candle = { time: number; open: string; high: string; low: string; close: string };
 type Status = 'connecting' | 'live' | 'reconnecting';
@@ -19,11 +23,13 @@ const toBar = (candle: Candle): CandlestickData<UTCTimestamp> => ({
 });
 
 export default function App() {
+  const [symbol, setSymbol] = useState<Symbol>('BTC');
   const container = useRef<HTMLDivElement>(null);
   const [status, setStatus] = useState<Status>('connecting');
   const [latest, setLatest] = useState<Candle | null>(null);
 
   useEffect(() => {
+    document.title = `${symbol} · Hype Radar`;
     const chart = createChart(container.current!, {
       autoSize: true,
       layout: {
@@ -46,7 +52,7 @@ export default function App() {
       upColor: '#30a378', downColor: '#c82346', borderVisible: false,
       wickUpColor: '#30a378', wickDownColor: '#c82346',
       priceLineStyle: LineStyle.Dotted,
-      priceFormat: { type: 'price', precision: 1, minMove: 0.1 },
+      priceFormat: { type: 'price', precision: 2, minMove: 0.01 },
     });
     let socket: WebSocket;
     let retry: ReturnType<typeof setTimeout>;
@@ -54,7 +60,7 @@ export default function App() {
     let fitted = false;
 
     function connect() {
-      socket = new WebSocket(`${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}/ws/btc`);
+      socket = new WebSocket(`${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}/ws/candles?symbol=${symbol}`);
       socket.onmessage = (event) => {
         const message: Message = JSON.parse(event.data);
         if (message.type === 'snapshot') {
@@ -93,14 +99,33 @@ export default function App() {
       socket.close();
       chart.remove();
     };
-  }, []);
+  }, [symbol]);
 
   const rising = latest ? Number(latest.close) >= Number(latest.open) : true;
 
   return (
     <main>
       <header>
-        <h1>BTC/USD <span>· 1D · Hyperliquid</span></h1>
+        <h1>
+          <Select value={symbol} onValueChange={(value) => {
+            setSymbol(value as Symbol);
+            setLatest(null);
+            setStatus('connecting');
+          }}>
+            <SelectTrigger aria-label="Select market"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              {markets.map((market) => (
+                <SelectItem key={market} value={market}>
+                  <span className="market-label">
+                    <img src={`/icons/${market}.${market === 'BTC' || market === 'ETH' ? 'svg' : 'png'}`} width={24} height={24} alt="" />
+                    {market}
+                  </span>
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <span> / USD · 1D · Hyperliquid</span>
+        </h1>
         <span className={`price ${rising ? 'up' : 'down'}`}>
           {latest ? formatPrice.format(Number(latest.close)) : '—'}
         </span>
@@ -109,8 +134,8 @@ export default function App() {
           {status === 'live' ? 'Live' : status === 'connecting' ? 'Connecting' : 'Reconnecting'}
         </span>
       </header>
-      <div className="chart" ref={container} role="img" aria-label="Live Bitcoin perpetual daily candlestick chart" />
-      {!latest && <p className="loading">Loading BTC candles…</p>}
+      <div className="chart" ref={container} role="img" aria-label={`Live ${symbol} perpetual daily candlestick chart`} />
+      {!latest && <p className="loading">Loading {symbol} candles…</p>}
       <footer>
         <a href="https://www.tradingview.com/" target="_blank" rel="noreferrer">
           Charts by TradingView

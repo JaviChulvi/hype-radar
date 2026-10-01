@@ -20,8 +20,33 @@ header {
   font-variant-numeric: tabular-nums;
 }
 
-h1 { font-size: inherit; font-weight: 400; margin: 0; }
+h1 { font-size: inherit; font-weight: 400; margin: 0; display: flex; align-items: center; gap: 6px; }
 h1 span { color: #928f86; }
+.select-trigger {
+  display: inline-flex; align-items: center; justify-content: space-between; gap: 12px;
+  min-height: 44px; padding: 6px 10px; border: 1px solid #5c5951; border-radius: 6px;
+  background: transparent; color: #e8e5dc; font: inherit; cursor: pointer;
+}
+.select-trigger span { color: inherit; }
+.market-label { display: inline-flex; align-items: center; gap: 8px; }
+.market-label img { flex-shrink: 0; object-fit: contain; border-radius: 50%; }
+.select-trigger:hover, .select-trigger[data-state="open"] { background: #25231e; }
+.select-trigger:focus-visible { outline: 2px solid #b39a6a; outline-offset: 3px; }
+.select-content {
+  z-index: 50; min-width: var(--radix-select-trigger-width);
+  max-height: var(--radix-select-content-available-height); overflow-y: auto;
+  border: 1px solid #5c5951; border-radius: 6px; background: #25231e; color: #e8e5dc;
+}
+.select-viewport { padding: 4px; }
+.select-item {
+  position: relative; display: flex; align-items: center; min-height: 44px;
+  padding: 8px 32px 8px 10px; border-radius: 3px; font-size: 14px;
+  cursor: pointer; user-select: none; outline: none;
+}
+.select-item[data-highlighted] { background: #34312b; }
+.select-item[data-disabled] { pointer-events: none; opacity: 0.5; }
+.select-trigger:disabled { cursor: not-allowed; opacity: 0.5; }
+.select-indicator { position: absolute; right: 8px; display: flex; }
 .up { color: #30a378; }
 .down { color: #c82346; }
 
@@ -39,7 +64,7 @@ a:focus-visible { outline: 1px solid #928f86; outline-offset: 4px; }
 
 @media (max-width: 600px) {
   header { padding: 18px 16px 12px; gap: 8px; }
-  h1 { flex-basis: 100%; font-size: 18px; }
+  h1 { flex-basis: 100%; flex-wrap: wrap; font-size: 18px; }
   .price { font-size: 22px; }
   .chart { margin: 0 4px; }
   footer { padding: 8px 14px; flex-direction: column; gap: 3px; }

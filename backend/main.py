@@ -3,18 +3,19 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 
-from feed import BitcoinFeed
+from feed import CandleFeed, Symbol
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    app.state.feed = BitcoinFeed()
-    task = asyncio.create_task(app.state.feed.run())
+    app.state.feeds = {}
+    app.state.feed_tasks = []
     try:
         yield
     finally:
-        task.cancel()
-        await asyncio.gather(task, return_exceptions=True)
+        for task in app.state.feed_tasks:
+            task.cancel()
+        await asyncio.gather(*app.state.feed_tasks, return_exceptions=True)
 
 
 app = FastAPI(title="Hype Radar", lifespan=lifespan)
@@ -22,19 +23,26 @@ app = FastAPI(title="Hype Radar", lifespan=lifespan)
 
 @app.get("/health")
 async def health():
-    feed = app.state.feed
     return {
-        "status": feed.status,
-        "candles": len(feed.candles),
-        "clients": len(feed.clients),
-        "last_received_at": feed.last_received_at,
+        "markets": {
+            symbol: {
+                "status": feed.status,
+                "candles": len(feed.candles),
+                "clients": len(feed.clients),
+                "last_received_at": feed.last_received_at,
+            }
+            for symbol, feed in app.state.feeds.items()
+        }
     }
 
 
-@app.websocket("/ws/btc")
-async def bitcoin(websocket: WebSocket):
+@app.websocket("/ws/candles")
+async def candles(websocket: WebSocket, symbol: Symbol = "BTC"):
     await websocket.accept()
-    feed = app.state.feed
+    if symbol not in app.state.feeds:
+        app.state.feeds[symbol] = CandleFeed(symbol)
+        app.state.feed_tasks.append(asyncio.create_task(app.state.feeds[symbol].run()))
+    feed = app.state.feeds[symbol]
     queue = feed.subscribe()
 
     async def send():
