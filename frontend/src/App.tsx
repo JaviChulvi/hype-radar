@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import OrderBook from './OrderBook';
+import Chat from './Chat';
 import {
   CandlestickSeries, ColorType, CrosshairMode, LineStyle, createChart,
   type CandlestickData, type UTCTimestamp,
@@ -200,6 +201,7 @@ export default function App() {
           {!latest && <p className="loading">Loading {symbol} {interval} candles…</p>}
         </section>
         <OrderBook key={symbol} symbol={symbol} />
+        <Chat />
       </div>
       <footer>
         <a href="https://www.tradingview.com/" target="_blank" rel="noreferrer">
