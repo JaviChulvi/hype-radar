@@ -142,7 +142,7 @@ a:focus-visible { outline: 1px solid #928f86; outline-offset: 4px; }
 
 /* Chat shares the workspace's warm neutral palette and shadcn-style controls. */
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
-.chat-pane { width: 340px; flex-shrink: 0; min-height: 0; display: flex; flex-direction: column; border-right: 1px solid #34312b; background: #1c1b17; color: #e8e5dc; font-size: 14px; }
+.chat-pane { width: 340px; flex-shrink: 0; min-height: 0; display: flex; flex-direction: column; border-left: 1px solid #34312b; background: #1c1b17; color: #e8e5dc; font-size: 14px; }
 .chat-pane ::selection { background: #65563c; color: #fff; }
 .chat-pane button { font: inherit; cursor: pointer; transition: background-color 160ms ease, color 160ms ease, transform 160ms ease; }
 .chat-pane button:disabled { cursor: not-allowed; opacity: 0.4; }
@@ -203,13 +203,13 @@ a:focus-visible { outline: 1px solid #928f86; outline-offset: 4px; }
 }
 @media (min-width: 761px) and (max-width: 1050px) {
   main { height: auto; min-height: 100dvh; }
-  .market-workspace { display: grid; grid-template-columns: 300px minmax(0, 1fr); }
-  .chat-pane { grid-row: span 2; width: auto; position: sticky; top: 0; height: 100dvh; }
+  .market-workspace { display: grid; grid-template-columns: minmax(0, 1fr) 300px; }
+  .chat-pane { grid-column: 2; grid-row: 1 / span 2; width: auto; position: sticky; top: 0; height: 100dvh; }
   .chart-pane { height: 480px; }
-  .order-book { grid-column: 2; width: auto; height: 666px; border-left: 0; border-top: 1px solid #34312b; }
+  .order-book { grid-column: 1; width: auto; height: 666px; border-left: 0; border-top: 1px solid #34312b; }
 }
 @media (max-width: 760px) {
-  .chat-pane { width: 100%; height: 560px; max-height: 80dvh; min-height: 360px; border-right: 0; border-bottom: 1px solid #34312b; }
+  .chat-pane { width: 100%; height: 560px; max-height: 80dvh; min-height: 360px; border-left: 0; border-top: 1px solid #34312b; }
   .chat-welcome { padding-bottom: 12px; }
   .chat-composer textarea { font-size: 16px; }
   .chat-send, .chat-icon-button { width: 44px; height: 44px; }

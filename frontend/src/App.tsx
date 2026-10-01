@@ -158,7 +158,6 @@ export default function App() {
         </div>
       </section>
       <div className="market-workspace">
-        <Chat />
         <section className="chart-pane" aria-label="Price chart">
           <div className="chart-header">
             <div className="chart-controls">
@@ -202,6 +201,7 @@ export default function App() {
           {!latest && <p className="loading">Loading {symbol} {interval} candles…</p>}
         </section>
         <OrderBook key={symbol} symbol={symbol} />
+        <Chat />
       </div>
       <footer>
         <a href="https://www.tradingview.com/" target="_blank" rel="noreferrer">
