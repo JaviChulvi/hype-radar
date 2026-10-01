@@ -262,6 +262,7 @@ class OrderBookFeed(SharedFeed):
                         "subscription": {
                             "type": "l2Book", "coin": self.coin,
                             "nSigFigs": int(self.precision),
+                            "fast": True,
                         },
                     }))
                     while True:

@@ -293,7 +293,7 @@ class OrderBookTests(unittest.IsolatedAsyncioTestCase):
                 await messages.put(first)
                 snapshot = await asyncio.wait_for(queue.get(), 2)
                 self.assertEqual(snapshot["status"], "live")
-                self.assertEqual(subscriptions[0], {"type": "l2Book", "coin": "xyz:SP500", "nSigFigs": 4})
+                self.assertEqual(subscriptions[0], {"type": "l2Book", "coin": "xyz:SP500", "nSigFigs": 4, "fast": True})
                 await messages.put(book(9, [[], []]))
                 await messages.put(book(11, [[{"px": "98", "sz": "4"}], []]))
                 updated = await asyncio.wait_for(queue.get(), 2)
