@@ -5,6 +5,8 @@ from contextlib import asynccontextmanager
 
 import httpx
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi.responses import StreamingResponse
+from pydantic import BaseModel, Field, field_validator
 
 from feed import MARKETS, BookPrecision, CandleFeed, Interval, OrderBookFeed, Symbol
 
@@ -25,6 +27,38 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Hype Radar", lifespan=lifespan)
+
+
+class ChatRequest(BaseModel):
+    message: str = Field(min_length=1, max_length=4000)
+
+    @field_validator("message")
+    @classmethod
+    def strip_message(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("Message must not be blank")
+        return value.strip()
+
+
+@app.post("/api/chat")
+async def chat(request: ChatRequest):
+    async def reply():
+        # Simulate model latency and token delivery without an AI provider.
+        await asyncio.sleep(0.9)
+        excerpt = request.message[:120] + ("…" if len(request.message) > 120 else "")
+        response = (
+            f'I received your message: “{excerpt}”\n\n'
+            "This is a demo reply from Hype Radar. Once an AI provider is connected, "
+            "we can explore market moves, liquidity, and alert ideas here. "
+            "For now, no market analysis has been performed and no alert has been created."
+        )
+        for word in response.split(" "):
+            yield word + " "
+            await asyncio.sleep(0.035)
+
+    return StreamingResponse(reply(), media_type="text/plain", headers={
+        "Cache-Control": "no-cache", "X-Accel-Buffering": "no",
+    })
 
 
 @app.get("/api/markets")

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import OrderBook from './OrderBook';
+import Chat from './Chat';
 import {
   CandlestickSeries, ColorType, CrosshairMode, LineStyle, createChart,
   type CandlestickData, type UTCTimestamp,
@@ -157,6 +158,7 @@ export default function App() {
         </div>
       </section>
       <div className="market-workspace">
+        <Chat />
         <section className="chart-pane" aria-label="Price chart">
           <div className="chart-header">
             <div className="chart-controls">
