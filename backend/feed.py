@@ -12,6 +12,13 @@ from websockets.exceptions import ConnectionClosed
 
 logger = logging.getLogger("uvicorn.error")
 HISTORY_SIZE = 200
+Interval = Literal["1m", "3m", "5m", "15m", "30m", "1h", "2h", "4h", "8h", "12h", "1d", "3d", "1w", "1M"]
+# A 31-day lookback per monthly candle covers calendar months of every length.
+INTERVAL_MS = {
+    "1m": 60_000, "3m": 180_000, "5m": 300_000, "15m": 900_000, "30m": 1_800_000,
+    "1h": 3_600_000, "2h": 7_200_000, "4h": 14_400_000, "8h": 28_800_000, "12h": 43_200_000,
+    "1d": 86_400_000, "3d": 259_200_000, "1w": 604_800_000, "1M": 2_678_400_000,
+}
 Symbol = Literal["BTC", "ETH", "SP500", "XYZ100", "BRENTOIL"]
 MARKETS = {
     "BTC": "BTC",
@@ -32,7 +39,7 @@ class Candle(BaseModel):
     close: Decimal = Field(alias="c", gt=0)
     trades: int = Field(alias="n", ge=0, exclude=True)
     coin: str = Field(alias="s", exclude=True)
-    interval: Literal["1d"] = Field(alias="i", exclude=True)
+    interval: Interval = Field(alias="i", exclude=True)
 
     @model_validator(mode="after")
     def validate_range(self):
@@ -47,8 +54,9 @@ class Candle(BaseModel):
 
 
 class CandleFeed:
-    def __init__(self, symbol: Symbol = "BTC"):
+    def __init__(self, symbol: Symbol = "BTC", interval: Interval = "5m"):
         self.symbol = symbol
+        self.interval = interval
         self.coin = MARKETS[symbol]
         self.candles: dict[int, Candle] = {}
         self.clients: set[asyncio.Queue] = set()
@@ -59,7 +67,7 @@ class CandleFeed:
         return {
             "type": "snapshot",
             "symbol": self.symbol,
-            "interval": "1d",
+            "interval": self.interval,
             "status": self.status,
             "candles": [c.model_dump(mode="json") for c in self.candles.values()],
         }
@@ -89,6 +97,8 @@ class CandleFeed:
         candle = Candle.model_validate(data)
         if candle.coin != self.coin:
             raise ValueError(f"Expected {self.coin} candle, received {candle.coin}")
+        if candle.interval != self.interval:
+            raise ValueError(f"Expected {self.interval} candle, received {candle.interval}")
         return candle
 
     async def consume(self, socket, pending):
@@ -131,14 +141,14 @@ class CandleFeed:
                                     "subscription": {
                                         "type": "candle",
                                         "coin": self.coin,
-                                        "interval": "1d",
+                                        "interval": self.interval,
                                     },
                                 }
                             )
                         )
                         logger.info(
-                            "Subscribed to the shared Hyperliquid %s daily candle feed",
-                            self.coin,
+                            "Subscribed to the shared Hyperliquid %s %s candle feed",
+                            self.coin, self.interval,
                         )
                         pending = {}
                         reader = asyncio.create_task(self.consume(socket, pending))
@@ -150,8 +160,8 @@ class CandleFeed:
                                     "type": "candleSnapshot",
                                     "req": {
                                         "coin": self.coin,
-                                        "interval": "1d",
-                                        "startTime": end - HISTORY_SIZE * 86_400_000,
+                                        "interval": self.interval,
+                                        "startTime": end - HISTORY_SIZE * INTERVAL_MS[self.interval],
                                         "endTime": end,
                                     },
                                 },

@@ -32,7 +32,7 @@ The first release will focus on a small basket of markets, potentially HYPE and 
 
 ## Run locally
 
-The chart streams Hyperliquid daily perpetual candles for BTC, ETH, SP500, XYZ100, and BRENTOIL through FastAPI. Use the shadcn/ui market selector in the header to switch markets. SP500, XYZ100, and BRENTOIL use the trade[XYZ] markets (`xyz:SP500`, `xyz:XYZ100`, and `xyz:BRENTOIL`). One shared ingestion task per requested market serves every browser; the latest 200 candles per market stay in memory.
+The chart streams Hyperliquid perpetual candles for BTC, ETH, SP500, XYZ100, and BRENTOIL through FastAPI. Use the shadcn/ui market and time interval selectors in the header to switch markets and candle durations. Supported intervals are `1m`, `3m`, `5m` (default), `15m`, `30m`, `1h`, `2h`, `4h`, `8h`, `12h`, `1d`, `3d`, `1w`, and `1M` (one month), matching the [Hyperliquid candle subscription API](https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/websocket/subscriptions). SP500, XYZ100, and BRENTOIL use the trade[XYZ] markets (`xyz:SP500`, `xyz:XYZ100`, and `xyz:BRENTOIL`). One shared ingestion task per requested market/interval pair serves every browser; the latest 200 candles per pair stay in memory.
 
 Requirements: Python 3.12+, [uv](https://docs.astral.sh/uv/), and Node.js 22.12+.
 
@@ -52,7 +52,7 @@ npm ci
 npm run dev
 ```
 
-Open **http://127.0.0.1:5173**. The frontend proxies `/ws/candles?symbol=BTC` and `/health` to the backend. The `symbol` parameter accepts `BTC` (default), `ETH`, `SP500`, `XYZ100`, or `BRENTOIL`; unsupported symbols are rejected. Run one backend worker to retain one exchange connection per market. A market's feed starts when first requested and stays available until shutdown. History is loaded on first request and refreshed after upstream reconnection; the chart preserves its last data while reconnecting and clears it when switching markets. `/health` reports feed status per requested market.
+Open **http://127.0.0.1:5173**. The frontend proxies `/ws/candles?symbol=BTC&interval=5m` and `/health` to the backend. The `symbol` parameter accepts `BTC` (default), `ETH`, `SP500`, `XYZ100`, or `BRENTOIL`; the `interval` parameter accepts the intervals above. Unsupported symbols or intervals are rejected. Run one backend worker to retain one exchange connection per market/interval pair. A market/interval feed starts when first requested and stops when its last browser client disconnects, releasing the upstream connection and cached history. Browsers viewing the same pair continue to share one feed. History is loaded on first request and refreshed after upstream reconnection; the chart preserves its last data while reconnecting and clears it when switching markets or intervals. `/health` reports feed status per requested market/interval pair, keyed as `BTC:5m`, for example.
 
 To check the frontend's types and production build, run `npm run build` in `frontend/`. No API keys are required.
 
