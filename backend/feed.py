@@ -12,6 +12,14 @@ from websockets.exceptions import ConnectionClosed
 
 logger = logging.getLogger("uvicorn.error")
 HISTORY_SIZE = 200
+Symbol = Literal["BTC", "ETH", "SP500", "XYZ100", "BRENTOIL"]
+MARKETS = {
+    "BTC": "BTC",
+    "ETH": "ETH",
+    "SP500": "xyz:SP500",
+    "XYZ100": "xyz:XYZ100",
+    "BRENTOIL": "xyz:BRENTOIL",
+}
 
 
 class Candle(BaseModel):
@@ -23,7 +31,7 @@ class Candle(BaseModel):
     low: Decimal = Field(alias="l", gt=0)
     close: Decimal = Field(alias="c", gt=0)
     trades: int = Field(alias="n", ge=0, exclude=True)
-    coin: Literal["BTC"] = Field(alias="s", exclude=True)
+    coin: str = Field(alias="s", exclude=True)
     interval: Literal["1d"] = Field(alias="i", exclude=True)
 
     @model_validator(mode="after")
@@ -38,8 +46,10 @@ class Candle(BaseModel):
         return self
 
 
-class BitcoinFeed:
-    def __init__(self):
+class CandleFeed:
+    def __init__(self, symbol: Symbol = "BTC"):
+        self.symbol = symbol
+        self.coin = MARKETS[symbol]
         self.candles: dict[int, Candle] = {}
         self.clients: set[asyncio.Queue] = set()
         self.status = "connecting"
@@ -48,7 +58,7 @@ class BitcoinFeed:
     def snapshot(self):
         return {
             "type": "snapshot",
-            "symbol": "BTC",
+            "symbol": self.symbol,
             "interval": "1d",
             "status": self.status,
             "candles": [c.model_dump(mode="json") for c in self.candles.values()],
@@ -75,6 +85,12 @@ class BitcoinFeed:
         self.status = status
         self.broadcast({"type": "status", "status": status})
 
+    def parse_candle(self, data):
+        candle = Candle.model_validate(data)
+        if candle.coin != self.coin:
+            raise ValueError(f"Expected {self.coin} candle, received {candle.coin}")
+        return candle
+
     async def consume(self, socket, pending):
         while True:
             try:
@@ -85,7 +101,7 @@ class BitcoinFeed:
             message = json.loads(raw)
             if message.get("channel") != "candle":
                 continue
-            candle = Candle.model_validate(message["data"])
+            candle = self.parse_candle(message["data"])
             self.last_received_at = time.time()
             candles = self.candles if self.status == "live" else pending
             if self.status == "live" and candles and candle.time < max(candles):
@@ -114,14 +130,15 @@ class BitcoinFeed:
                                     "method": "subscribe",
                                     "subscription": {
                                         "type": "candle",
-                                        "coin": "BTC",
+                                        "coin": self.coin,
                                         "interval": "1d",
                                     },
                                 }
                             )
                         )
                         logger.info(
-                            "Subscribed to the shared Hyperliquid BTC daily candle feed"
+                            "Subscribed to the shared Hyperliquid %s daily candle feed",
+                            self.coin,
                         )
                         pending = {}
                         reader = asyncio.create_task(self.consume(socket, pending))
@@ -132,7 +149,7 @@ class BitcoinFeed:
                                 json={
                                     "type": "candleSnapshot",
                                     "req": {
-                                        "coin": "BTC",
+                                        "coin": self.coin,
                                         "interval": "1d",
                                         "startTime": end - HISTORY_SIZE * 86_400_000,
                                         "endTime": end,
@@ -142,7 +159,7 @@ class BitcoinFeed:
                             response.raise_for_status()
                             candles = {
                                 c.time: c
-                                for c in map(Candle.model_validate, response.json())
+                                for c in map(self.parse_candle, response.json())
                             }
                             # Trade counts order observations within the same candle.
                             # Keep REST on ties so an older buffer cannot undo history.
@@ -151,7 +168,7 @@ class BitcoinFeed:
                                 if previous is None or candle.trades > previous.trades:
                                     candles[candle.time] = candle
                             if not candles:
-                                raise ValueError("No BTC history returned")
+                                raise ValueError(f"No {self.coin} history returned")
                             self.candles = dict(sorted(candles.items())[-HISTORY_SIZE:])
                             self.status = "live"
                             self.broadcast(self.snapshot())
@@ -169,7 +186,7 @@ class BitcoinFeed:
                 ) as error:
                     self.set_status("reconnecting")
                     logger.warning(
-                        "BTC feed interrupted; retrying in %ss: %s", delay, error
+                        "%s feed interrupted; retrying in %ss: %s", self.coin, delay, error
                     )
                     await asyncio.sleep(delay)
                     delay = min(delay * 2, 30)

@@ -8,7 +8,9 @@
     "build": "tsc --noEmit && vite build"
   },
   "dependencies": {
+    "@radix-ui/react-select": "^2.3.7",
     "lightweight-charts": "^5.2.0",
+    "lucide-react": "^1.49.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0"
   },
