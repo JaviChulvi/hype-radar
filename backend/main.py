@@ -3,7 +3,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 
-from feed import CandleFeed, Symbol
+from feed import CandleFeed, Interval, Symbol
 
 
 @asynccontextmanager
@@ -25,24 +25,25 @@ app = FastAPI(title="Hype Radar", lifespan=lifespan)
 async def health():
     return {
         "markets": {
-            symbol: {
+            key: {
                 "status": feed.status,
                 "candles": len(feed.candles),
                 "clients": len(feed.clients),
                 "last_received_at": feed.last_received_at,
             }
-            for symbol, feed in app.state.feeds.items()
+            for key, feed in app.state.feeds.items()
         }
     }
 
 
 @app.websocket("/ws/candles")
-async def candles(websocket: WebSocket, symbol: Symbol = "BTC"):
+async def candles(websocket: WebSocket, symbol: Symbol = "BTC", interval: Interval = "5m"):
     await websocket.accept()
-    if symbol not in app.state.feeds:
-        app.state.feeds[symbol] = CandleFeed(symbol)
-        app.state.feed_tasks.append(asyncio.create_task(app.state.feeds[symbol].run()))
-    feed = app.state.feeds[symbol]
+    key = f"{symbol}:{interval}"
+    if key not in app.state.feeds:
+        app.state.feeds[key] = CandleFeed(symbol, interval)
+        app.state.feed_tasks.append(asyncio.create_task(app.state.feeds[key].run()))
+    feed = app.state.feeds[key]
     queue = feed.subscribe()
 
     async def send():

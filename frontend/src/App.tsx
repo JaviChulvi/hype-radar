@@ -7,6 +7,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 
 const markets = ['BTC', 'ETH', 'SP500', 'XYZ100', 'BRENTOIL'] as const;
 type Symbol = typeof markets[number];
+const intervals = ['1m', '3m', '5m', '15m', '30m', '1h', '2h', '4h', '8h', '12h', '1d', '3d', '1w', '1M'] as const;
+type Interval = typeof intervals[number];
 
 type Candle = { time: number; open: string; high: string; low: string; close: string };
 type Status = 'connecting' | 'live' | 'reconnecting';
@@ -24,12 +26,13 @@ const toBar = (candle: Candle): CandlestickData<UTCTimestamp> => ({
 
 export default function App() {
   const [symbol, setSymbol] = useState<Symbol>('BTC');
+  const [interval, setInterval] = useState<Interval>('5m');
   const container = useRef<HTMLDivElement>(null);
   const [status, setStatus] = useState<Status>('connecting');
   const [latest, setLatest] = useState<Candle | null>(null);
 
   useEffect(() => {
-    document.title = `${symbol} · Hype Radar`;
+    document.title = `${symbol} · ${interval} · Hype Radar`;
     const chart = createChart(container.current!, {
       autoSize: true,
       layout: {
@@ -40,7 +43,7 @@ export default function App() {
       rightPriceScale: {
         borderVisible: false, scaleMargins: { top: 0.08, bottom: 0.06 },
       },
-      timeScale: { borderVisible: false, rightOffset: 8 },
+      timeScale: { borderVisible: false, rightOffset: 8, timeVisible: interval.endsWith('m') || interval.endsWith('h'), secondsVisible: false },
       crosshair: {
         mode: CrosshairMode.Normal,
         vertLine: { color: '#5c5951', labelBackgroundColor: '#34312b' },
@@ -60,7 +63,7 @@ export default function App() {
     let fitted = false;
 
     function connect() {
-      socket = new WebSocket(`${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}/ws/candles?symbol=${symbol}`);
+      socket = new WebSocket(`${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}/ws/candles?symbol=${symbol}&interval=${interval}`);
       socket.onmessage = (event) => {
         const message: Message = JSON.parse(event.data);
         if (message.type === 'snapshot') {
@@ -99,7 +102,7 @@ export default function App() {
       socket.close();
       chart.remove();
     };
-  }, [symbol]);
+  }, [symbol, interval]);
 
   const rising = latest ? Number(latest.close) >= Number(latest.open) : true;
 
@@ -124,7 +127,20 @@ export default function App() {
               ))}
             </SelectContent>
           </Select>
-          <span> / USD · 1D · Hyperliquid</span>
+          <span> / USD · </span>
+          <Select value={interval} onValueChange={(value) => {
+            setInterval(value as Interval);
+            setLatest(null);
+            setStatus('connecting');
+          }}>
+            <SelectTrigger aria-label="Select time interval"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              {intervals.map((value) => (
+                <SelectItem key={value} value={value}>{value}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <span> · Hyperliquid</span>
         </h1>
         <span className={`price ${rising ? 'up' : 'down'}`}>
           {latest ? formatPrice.format(Number(latest.close)) : '—'}
@@ -134,8 +150,8 @@ export default function App() {
           {status === 'live' ? 'Live' : status === 'connecting' ? 'Connecting' : 'Reconnecting'}
         </span>
       </header>
-      <div className="chart" ref={container} role="img" aria-label={`Live ${symbol} perpetual daily candlestick chart`} />
-      {!latest && <p className="loading">Loading {symbol} candles…</p>}
+      <div className="chart" ref={container} role="img" aria-label={`Live ${symbol} perpetual ${interval} candlestick chart`} />
+      {!latest && <p className="loading">Loading {symbol} {interval} candles…</p>}
       <footer>
         <a href="https://www.tradingview.com/" target="_blank" rel="noreferrer">
           Charts by TradingView
