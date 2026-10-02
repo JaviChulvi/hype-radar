@@ -66,6 +66,66 @@ The Select component is adapted from [shadcn/ui](https://ui.shadcn.com/docs/comp
 
 Run the backend regression tests with `uv run python -m unittest -v` in `backend/`.
 
+## Deterministic alert core
+
+The alert core is a separate process from the demo HTTP API. It stores normalized market samples,
+immutable rule versions, runtime checkpoints, alert events, evidence, and notification intent in
+PostgreSQL. Event, evidence, runtime, and outbox changes are committed atomically. Economic values
+use `Decimal` in Python and `NUMERIC(38, 18)` in PostgreSQL.
+
+The first deterministic predicates support current-value thresholds and absolute or percentage open
+interest changes over explicit windows. Rules combine predicates with `all` or `any`, using
+three-valued `true / false / unknown` logic. Persistence, cooldown, freshness, spread, depth, feed-gap,
+out-of-order, and verified-oracle checks are evaluated without an LLM. The exchange's
+`activeAssetCtx` channel does not provide a source timestamp, so those observations explicitly use
+the backend reception time; `l2Book` observations retain the exchange timestamp.
+
+Start PostgreSQL from the repository root:
+
+```sh
+docker compose up -d postgres
+```
+
+Prepare and migrate the backend:
+
+```sh
+cd backend
+cp .env.example .env
+uv sync --locked
+uv run alembic upgrade head
+```
+
+Run the versioned deterministic replay fixture:
+
+```sh
+uv run python -m app.workers.replay tests/fixtures/hype_breakout.json
+```
+
+Register that example rule and start the live evaluation worker:
+
+```sh
+uv run python -m app.workers.seed_rule tests/fixtures/hype_breakout.json
+uv run python -m app.workers.evaluator
+```
+
+The worker opens one normalized Hyperliquid connection per active market, subscribes to
+`activeAssetCtx` and `l2Book`, rebuilds required windows from stored samples after restart, evaluates
+on observations and timers, and writes emitted events to the console and PostgreSQL. It currently
+loads active rules at startup, so restart it after activating a different rule version. Notification
+delivery, rule-management HTTP endpoints, authentication, and the visual rule editor remain later
+work; outbox rows are durable but are not sent yet.
+
+Run the isolated PostgreSQL integration test with:
+
+```sh
+docker compose --profile test up -d postgres-test
+cd backend
+DATABASE_URL=postgresql+psycopg://hype_radar:hype_radar@127.0.0.1:55432/hype_radar_test \
+  uv run alembic upgrade head
+TEST_DATABASE_URL=postgresql+psycopg://hype_radar:hype_radar@127.0.0.1:55432/hype_radar_test \
+  uv run python -m unittest -v tests.test_persistence
+```
+
 ## Proposed architecture
 
 Build a modular monolith with separate ingestion, evaluation, API, and notification processes. Share exchange subscriptions per market instead of opening a connection per user.

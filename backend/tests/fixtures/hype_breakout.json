@@ -1,0 +1,85 @@
+{
+  "rule": {
+    "schema_version": 1,
+    "id": "00000000-0000-0000-0000-000000000103",
+    "rule_id": "00000000-0000-0000-0000-000000000102",
+    "owner_id": "00000000-0000-0000-0000-000000000101",
+    "version": 1,
+    "name": "HYPE price and OI breakout",
+    "market": {
+      "network": "mainnet",
+      "dex": "",
+      "coin": "HYPE"
+    },
+    "predicates": [
+      {
+        "type": "threshold",
+        "id": "mark-above-100",
+        "metric": "mark_price",
+        "operator": "gte",
+        "threshold": "100",
+        "max_age_seconds": 60
+      },
+      {
+        "type": "open_interest_change",
+        "id": "oi-up-5-percent",
+        "operator": "gt",
+        "threshold": "5",
+        "window_seconds": 900,
+        "max_age_seconds": 60,
+        "baseline_tolerance_seconds": 60,
+        "mode": "percent"
+      }
+    ],
+    "combinator": "all",
+    "persistence_seconds": 0,
+    "cooldown_seconds": 300,
+    "quality_policy": "warn",
+    "quality": {
+      "stale_after_seconds": {
+        "mark_price": 60,
+        "open_interest": 60,
+        "bid_price": 60,
+        "ask_price": 60
+      },
+      "max_clock_skew_seconds": 5,
+      "max_spread_bps": "25",
+      "min_bid_depth": "10000",
+      "min_ask_depth": "10000",
+      "require_verified_oracle": false
+    },
+    "deliveries": [
+      {
+        "channel": "web",
+        "recipient": "00000000-0000-0000-0000-000000000101"
+      }
+    ]
+  },
+  "observations": [
+    {
+      "market": {"network": "mainnet", "dex": "", "coin": "HYPE"},
+      "observed_at": "2026-10-02T10:00:00+00:00",
+      "values": {
+        "mark_price": "99",
+        "open_interest": "100",
+        "bid_price": "98.9",
+        "ask_price": "99.1",
+        "bid_depth": "15000",
+        "ask_depth": "14000"
+      }
+    },
+    {
+      "market": {"network": "mainnet", "dex": "", "coin": "HYPE"},
+      "observed_at": "2026-10-02T10:15:00+00:00",
+      "values": {
+        "mark_price": "101",
+        "open_interest": "106",
+        "bid_price": "100.9",
+        "ask_price": "101.1",
+        "bid_depth": "16000",
+        "ask_depth": "15000"
+      }
+    }
+  ],
+  "expected_event_statuses": ["confirmed"]
+}

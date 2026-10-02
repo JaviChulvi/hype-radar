@@ -1,0 +1,36 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: hype_radar
+      POSTGRES_USER: hype_radar
+      POSTGRES_PASSWORD: hype_radar
+    ports:
+      - "127.0.0.1:5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U hype_radar -d hype_radar"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+    volumes:
+      - hype_radar_postgres:/var/lib/postgresql/data
+
+  postgres-test:
+    image: postgres:17-alpine
+    profiles: ["test"]
+    environment:
+      POSTGRES_DB: hype_radar_test
+      POSTGRES_USER: hype_radar
+      POSTGRES_PASSWORD: hype_radar
+    ports:
+      - "127.0.0.1:55432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U hype_radar -d hype_radar_test"]
+      interval: 1s
+      timeout: 3s
+      retries: 20
+    tmpfs:
+      - /var/lib/postgresql/data
+
+volumes:
+  hype_radar_postgres:
