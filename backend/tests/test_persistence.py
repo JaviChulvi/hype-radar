@@ -1,12 +1,15 @@
+import asyncio
 import os
 import unittest
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+from unittest.mock import AsyncMock, patch
 from uuid import uuid4
 
 from sqlalchemy import delete, func, select
 
+from app.application.market_data import MarketDataService
 from app.config import Settings
 from app.domain.markets import MarketIdentity
 from app.domain.observations import MarketObservation, Metric
@@ -17,6 +20,7 @@ from app.domain.rules import (
     ThresholdPredicate,
 )
 from app.engine import ObservationWindowStore, RuleEngine
+from app.ingestion.client import HyperliquidClient
 from app.persistence import SqlAlchemyUnitOfWork, create_engine, create_session_factory
 from app.persistence.models import (
     AlertEventModel,
@@ -28,6 +32,8 @@ from app.persistence.models import (
     NotificationOutboxModel,
     RuleRuntimeModel,
 )
+from app.workers.evaluator import EvaluationWorker
+from feed import ContextFeed, SharedFeed
 
 TEST_DATABASE_URL = os.getenv("TEST_DATABASE_URL")
 
@@ -56,6 +62,89 @@ class PostgreSQLPersistenceTests(unittest.IsolatedAsyncioTestCase):
                 await session.execute(delete(MarketSampleModel).where(MarketSampleModel.market_id.in_(self.market_ids)))
                 await session.execute(delete(MarketModel).where(MarketModel.id.in_(self.market_ids)))
         await self.database_engine.dispose()
+
+    async def test_shared_market_service_drives_durable_evaluation(self):
+        now = datetime.now(UTC)
+        market = MarketIdentity("mainnet", "", "HYPE")
+        rule = RuleVersion(
+            id=uuid4(),
+            rule_id=uuid4(),
+            owner_id=uuid4(),
+            version=1,
+            name="Shared service integration",
+            market=market,
+            predicates=(
+                ThresholdPredicate(
+                    "price", Metric.MARK_PRICE, ComparisonOperator.GREATER_THAN, Decimal("100"), timedelta(minutes=1)
+                ),
+            ),
+            deliveries=(DeliveryTarget("web", "integration-user"),),
+        )
+        async with SqlAlchemyUnitOfWork(self.sessions) as unit_of_work:
+            stored_market = await unit_of_work.markets.ensure(market)
+            self.market_ids.add(stored_market.id)
+            self.rule_ids.add(rule.rule_id)
+            await unit_of_work.rules.add_version(rule, stored_market.id, now)
+
+        markets = MarketDataService(HyperliquidClient())
+        with patch("app.workers.evaluator.create_engine", return_value=self.database_engine):
+            worker = EvaluationWorker(markets)
+        await worker.start()
+        ready = asyncio.Event()
+
+        async def feed_run(feed):
+            if isinstance(feed, ContextFeed):
+                feed.apply({"markPx": "101", "openInterest": "1000"}, datetime.now(UTC))
+                ready.set()
+            await asyncio.Event().wait()
+
+        with (
+            patch.object(SharedFeed, "run", feed_run),
+            patch.object(markets.client, "contexts", AsyncMock(return_value={})),
+        ):
+            task = asyncio.create_task(worker.run())
+            try:
+                await asyncio.wait_for(ready.wait(), 2)
+                # A browser joining and leaving the same book cannot stop evaluation.
+                async with markets.subscribe("HYPE", ("book",)):
+                    self.assertEqual(markets._owners["book:HYPE:full:normal"], 2)
+                self.assertEqual(markets._owners["book:HYPE:full:normal"], 1)
+                async with asyncio.timeout(5):
+                    while True:
+                        async with self.sessions() as session:
+                            event = await session.scalar(
+                                select(AlertEventModel).where(
+                                    AlertEventModel.rule_version_id == rule.id,
+                                    AlertEventModel.status == "confirmed",
+                                )
+                            )
+                            if event is not None:
+                                self.event_ids.add(event.id)
+                                self.assertIsNotNone(
+                                    await session.scalar(
+                                        select(AlertEvidenceModel).where(AlertEvidenceModel.event_id == event.id)
+                                    )
+                                )
+                                self.assertIsNotNone(
+                                    await session.scalar(
+                                        select(NotificationOutboxModel).where(
+                                            NotificationOutboxModel.event_id == event.id
+                                        )
+                                    )
+                                )
+                                self.assertTrue((await session.get(RuleRuntimeModel, rule.id)).episode_triggered)
+                                self.assertIsNotNone(
+                                    await session.scalar(
+                                        select(MarketSampleModel).where(MarketSampleModel.market_id == stored_market.id)
+                                    )
+                                )
+                                break
+                        await asyncio.sleep(0.02)
+            finally:
+                task.cancel()
+                await asyncio.gather(task, return_exceptions=True)
+                await markets.close()
+        self.assertEqual(markets._tasks, {})
 
     async def test_event_evidence_outbox_and_runtime_are_committed_atomically(self):
         now = datetime.now(UTC)
