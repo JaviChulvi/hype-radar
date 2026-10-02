@@ -40,12 +40,15 @@ The right-side chat panel next to the order book is a session-only demo: `POST /
 
 Requirements: Python 3.12+, [uv](https://docs.astral.sh/uv/), and Node.js 22.12+.
 
-Start the backend from the repository root:
+Start PostgreSQL, migrate the database, and start the backend from the repository root:
 
 ```sh
+docker compose up -d postgres
 cd backend
+cp .env.example .env  # first setup only
 uv sync
-uv run uvicorn main:app --host 127.0.0.1 --port 8000
+uv run alembic upgrade head
+uv run uvicorn main:app --host 127.0.0.1 --port 8000 --workers 1
 ```
 
 In a second terminal, start the frontend from the repository root:
@@ -69,7 +72,8 @@ Run the backend regression tests with `uv run python -m unittest -v` in `backend
 ## Shared market-data API
 
 The same service serves browser WebSockets, read-only HTTP calls, and deterministic alerts. Agent
-code can call it directly; no LLM framework, API key, or database is needed for reads.
+code can call it directly without an LLM framework or API key. Standalone market-data reads do not
+need a database; the FastAPI backend always starts alert evaluation and requires PostgreSQL.
 
 | Object | Responsibility |
 | --- | --- |
@@ -150,7 +154,7 @@ sections and adds all active subscriptions plus evaluator status; unhealthy acti
 
 ## Deterministic alert core
 
-The alert evaluator is an optional supervised task in the same process as FastAPI, using the same market-data service. It stores normalized market samples,
+The alert evaluator is an always-running supervised task in the same process as FastAPI, using the same market-data service. It stores normalized market samples,
 immutable rule versions, runtime checkpoints, alert events, evidence, and notification intent in
 PostgreSQL. Event, evidence, runtime, and outbox changes are committed atomically. Economic values
 use `Decimal` in Python and `NUMERIC(38, 18)` in PostgreSQL.
@@ -183,20 +187,20 @@ Run the versioned deterministic replay fixture:
 uv run python -m app.workers.replay tests/fixtures/hype_breakout.json
 ```
 
-Register that example rule, then start (or restart) the backend with alerts enabled:
+Register that example rule, then start (or restart) the backend:
 
 ```sh
 uv run python -m app.workers.seed_rule tests/fixtures/hype_breakout.json
-ALERTS_ENABLED=true uv run uvicorn main:app --host 127.0.0.1 --port 8000 --workers 1
+uv run uvicorn main:app --host 127.0.0.1 --port 8000 --workers 1
 ```
 
 The evaluator holds shared context and ungrouped normal-depth book subscriptions for each active
 market. Closing browser tabs cannot stop those subscriptions. It rebuilds required windows from
 stored samples, evaluates observations and timers, and persists emitted events in PostgreSQL.
 It loads rules at startup; restart the backend after activating a different rule version.
-With no active rules it stays idle. Database/rule-loading failures prevent startup when alerts are
-enabled. A runtime evaluator failure stops evaluation and makes `/health` return 503; restart after
-resolving the cause. `ALERTS_ENABLED=false` (the default) keeps browsing independent of PostgreSQL.
+Alert evaluation starts automatically with the backend. With no active rules it stays idle.
+Database/rule-loading failures prevent startup. A runtime evaluator failure stops evaluation and
+makes `/health` return 503; restart after resolving the cause. There is no alert enable/disable setting.
 The former standalone live-evaluator command has been removed; seed and replay commands remain. Notification
 delivery, rule-management HTTP endpoints, authentication, and the visual rule editor remain later
 work; outbox rows are durable but are not sent yet.

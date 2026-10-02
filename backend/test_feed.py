@@ -240,6 +240,12 @@ class FeedTests(unittest.IsolatedAsyncioTestCase):
 
 
 class RoutingTests(unittest.TestCase):
+    def setUp(self):
+        # HTTP unit tests isolate the database read; the real evaluator lifecycle still runs.
+        self.load_rules = self.enterContext(
+            patch("main.EvaluationWorker._load_rules_and_warm_up", new=AsyncMock(return_value=[]))
+        )
+
     def test_feeds_are_shared_and_last_viewer_cleanup(self):
         with patch.object(SharedFeed, "run", idle), TestClient(app) as client:
             for path, key, count in (("candles", "BTC:5m", 1), ("book", "book:BTC:5:fast", 2)):

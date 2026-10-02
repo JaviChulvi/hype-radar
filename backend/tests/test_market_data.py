@@ -9,7 +9,6 @@ import httpx
 from fastapi.testclient import TestClient
 
 from app.application.market_data import MarketDataService, MarketUnavailable, SlowConsumer
-from app.config import Settings
 from app.domain.markets import resolve_market
 from app.ingestion.client import HyperliquidClient
 from feed import SharedFeed
@@ -204,6 +203,12 @@ class MarketDataTests(unittest.IsolatedAsyncioTestCase):
 
 
 class MarketDataHTTPTests(unittest.TestCase):
+    def setUp(self):
+        # HTTP unit tests isolate the database read; the real evaluator lifecycle still runs.
+        self.load_rules = self.enterContext(
+            patch("main.EvaluationWorker._load_rules_and_warm_up", new=AsyncMock(return_value=[]))
+        )
+
     def test_http_reads_match_service_and_validate_requests(self):
         with TestClient(app) as client:
             with (
@@ -223,7 +228,8 @@ class MarketDataHTTPTests(unittest.TestCase):
             self.assertEqual(client.get("/api/market-data/DOGE/snapshot").status_code, 404)
             for suffix in ("candles?limit=201", "candles?interval=2m", "book?precision=6", "trades?limit=0"):
                 self.assertEqual(client.get(f"/api/market-data/BTC/{suffix}").status_code, 422)
-            self.assertEqual(client.get("/health").json()["evaluator"]["status"], "disabled")
+            self.assertEqual(client.get("/health").json()["evaluator"]["status"], "idle")
+            self.load_rules.assert_awaited_once()
             with (
                 patch.object(
                     app.state.markets.client, "contexts", AsyncMock(side_effect=httpx.ConnectError("offline"))
@@ -233,14 +239,13 @@ class MarketDataHTTPTests(unittest.TestCase):
                 self.assertEqual(client.get("/api/market-data/SP500/snapshot").status_code, 503)
 
     def test_alert_startup_failure_is_fatal_and_runtime_failure_is_reported(self):
-        settings = Settings(alerts_enabled=True)
-        with patch("main.get_settings", return_value=settings), patch("main.EvaluationWorker") as worker:
+        with patch("main.EvaluationWorker") as worker:
             worker.return_value.start = AsyncMock(side_effect=RuntimeError("database unavailable"))
             worker.return_value.close = AsyncMock()
             with self.assertRaisesRegex(RuntimeError, "database unavailable"), TestClient(app):
                 pass
             worker.return_value.close.assert_awaited_once()
-        with patch("main.get_settings", return_value=settings), patch("main.EvaluationWorker") as worker:
+        with patch("main.EvaluationWorker") as worker:
             worker.return_value.start = AsyncMock()
             worker.return_value.close = AsyncMock()
             worker.return_value.run = AsyncMock(side_effect=RuntimeError("lost continuity"))

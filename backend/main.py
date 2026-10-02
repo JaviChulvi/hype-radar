@@ -23,23 +23,22 @@ async def lifespan(app: FastAPI):
     settings = get_settings()
     markets = MarketDataService(HyperliquidClient(settings.hyperliquid_network))
     app.state.markets = markets
-    app.state.evaluator_status = "disabled"
+    app.state.evaluator_status = "starting"
     evaluator = None
     task = None
     try:
-        if settings.alerts_enabled:
-            evaluator = EvaluationWorker(markets)
-            await evaluator.start()
-            app.state.evaluator_status = "running" if evaluator.rules else "idle"
+        evaluator = EvaluationWorker(markets)
+        await evaluator.start()
+        app.state.evaluator_status = "running" if evaluator.rules else "idle"
 
-            async def evaluate():
-                try:
-                    await evaluator.run()
-                except Exception:
-                    app.state.evaluator_status = "failed"
-                    logger.exception("Alert evaluator stopped; restart required")
+        async def evaluate():
+            try:
+                await evaluator.run()
+            except Exception:
+                app.state.evaluator_status = "failed"
+                logger.exception("Alert evaluator stopped; restart required")
 
-            task = asyncio.create_task(evaluate())
+        task = asyncio.create_task(evaluate())
         yield
     finally:
         if task is not None:
