@@ -2,6 +2,7 @@
 
 import asyncio
 import time
+from dataclasses import replace
 from datetime import UTC, datetime
 
 from app.domain.market_data import (
@@ -161,18 +162,21 @@ class OrderBookFeed(SharedFeed):
         book = Book.model_validate(raw)
         if book.coin != self.coin:
             raise ValueError("Book identity does not match subscription")
-        if self.book is not None and book.time < self.book.time:
-            return
         if self.fast:
             book = book.model_copy(update={"levels": tuple(side[:5] for side in book.levels)})
-        self.book = book
-        self.observation = self.normalizer.order_book(
+        observation = self.normalizer.order_book(
             self.market,
             [[level.model_dump() for level in side] for side in book.levels],
             datetime.fromtimestamp(book.time / 1000, UTC),
             received_at,
             gap=self.gap,
         )
+        if self.book is not None and book.time < self.book.time:
+            # Preserve integrity evidence without replacing or refreshing current state.
+            self.broadcast(replace(self.snapshot(), observation=replace(observation, out_of_order=True)))
+            return
+        self.book = book
+        self.observation = observation
         self.changed(received_at)
 
     async def consume(self, socket) -> None:

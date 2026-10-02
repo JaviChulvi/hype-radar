@@ -136,6 +136,30 @@ class MarketDataTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.markets._tasks, {})
         self.assertEqual(self.markets._owners, {})
 
+    async def test_trade_read_returns_quiet_live_cache_but_refreshes_after_disconnect(self):
+        ready = asyncio.Event()
+        trade = {"coin": "BTC", "px": "100", "sz": "1", "time": 1, "side": "B", "tid": 1}
+
+        async def run(feed):
+            feed.apply([trade])
+            ready.set()
+            await asyncio.Event().wait()
+
+        with patch("feed.TradeFeed.run", run):
+            async with self.markets.subscribe("BTC", ("trades",)):
+                await ready.wait()
+                _, feed = self.markets._feed("BTC", "trades")
+                feed.received_at = datetime.now(UTC) - timedelta(seconds=60)
+                result = await asyncio.wait_for(self.markets.get_recent_trades("BTC"), 0.1)
+                self.assertEqual(result[0].tid, 1)
+                self.assertEqual(self.markets._owners["trades:BTC"], 1)
+
+            # An inactive cache must bootstrap again even if its last status was live.
+            trade = {**trade, "tid": 2}
+            result = await asyncio.wait_for(self.markets.get_recent_trades("BTC"), 0.1)
+            self.assertEqual(result[0].tid, 2)
+            self.assertEqual(self.markets._tasks, {})
+
     async def test_cancelled_subscription_releases_all_ownership(self):
         ready = asyncio.Event()
 

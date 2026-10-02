@@ -1,7 +1,8 @@
 import asyncio
 import json
 import unittest
-from datetime import UTC, datetime
+from dataclasses import replace
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 from types import SimpleNamespace
@@ -10,6 +11,9 @@ from unittest.mock import AsyncMock, patch
 from app.application.market_data import MarketDataService, SlowConsumer
 from app.domain.markets import resolve_market
 from app.domain.observations import Metric
+from app.domain.rules import QualityPolicy, QualitySettings
+from app.engine import ObservationWindowStore
+from app.engine.quality import QualityEvaluator
 from app.ingestion.client import HyperliquidClient
 from app.persistence.serialization import rule_from_dict
 from app.workers.evaluator import EvaluationWorker
@@ -59,6 +63,39 @@ class SharedObservationTests(unittest.IsolatedAsyncioTestCase):
                         self.assertEqual(self.markets._owners["trades:HYPE"], 2)
                 self.assertEqual(len(self.markets._tasks), 2)
             self.assertEqual(self.markets._tasks, {})
+
+    async def test_older_book_preserves_latest_state_and_blocks_alert_quality(self):
+        fixture = Path(__file__).parent / "fixtures/hype_breakout.json"
+        rule = replace(
+            rule_from_dict(json.loads(fixture.read_text())["rule"]),
+            quality=QualitySettings(),
+            quality_policy=QualityPolicy.BLOCK,
+        )
+        windows = ObservationWindowStore()
+        feed = OrderBookFeed(self.client, self.market, None, False)
+        queue = asyncio.Queue()
+        feed.clients.add(queue)
+        raw = {
+            "coin": "HYPE",
+            "time": int(self.at.timestamp() * 1000),
+            "levels": [[{"px": "100", "sz": "2"}], [{"px": "101", "sz": "3"}]],
+        }
+        feed.apply(raw, self.at)
+        latest = queue.get_nowait()
+        windows.add(latest.observation)
+        received = self.at + timedelta(seconds=1)
+        feed.apply({**raw, "time": raw["time"] - 1000, "levels": [[], []]}, received)
+        update = await asyncio.wait_for(queue.get(), 0.1)
+        windows.add(update.observation)
+
+        self.assertIs(update.data, latest.data)
+        self.assertIs(feed.observation, latest.observation)
+        self.assertEqual(feed.received_at, self.at)
+        self.assertEqual(update.observation.received_at, received)
+        self.assertTrue(update.observation.out_of_order)
+        quality, checks = QualityEvaluator(windows).evaluate(rule, received)
+        self.assertEqual(quality.value, "blocked")
+        self.assertIn("OUT_OF_ORDER", [check.reason_code for check in checks])
 
     async def test_slow_evaluator_stops_and_releases_subscriptions(self):
         worker = EvaluationWorker(self.markets)

@@ -328,8 +328,9 @@ class MarketDataService:
     async def get_recent_trades(self, market: str | MarketIdentity, limit: int = 40) -> tuple[Trade, ...]:
         if not 1 <= limit <= 40:
             raise ValueError("Trade limit must be between 1 and 40")
-        _, feed = self._feed(market, "trades")
-        if self._fresh(feed, 15):
+        key, feed = self._feed(market, "trades")
+        # A live trade stream remains current when the market has no executions.
+        if self._fresh(feed, 15) or (feed.status == "live" and key in self._tasks):
             return feed.data[:limit]
         try:
             async with asyncio.timeout(10), self.subscribe(market, ("trades",)) as updates:
