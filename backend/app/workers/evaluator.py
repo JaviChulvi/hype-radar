@@ -4,16 +4,18 @@ from collections import defaultdict
 from datetime import UTC, datetime, timedelta
 
 from app.application import EvaluationService
+from app.application.market_data import MarketDataService
 from app.domain.rules import OpenInterestChangePredicate, RuleVersion
 from app.engine import ObservationWindowStore, RuleEngine
-from app.ingestion import HyperliquidObservationFeed
 from app.persistence import SqlAlchemyUnitOfWork, create_engine, create_session_factory
 
 logger = logging.getLogger(__name__)
 
 
 class EvaluationWorker:
-    def __init__(self, tick_interval: float = 1.0):
+    def __init__(self, markets: MarketDataService, tick_interval: float = 1.0):
+        self.markets = markets
+        self.rules: list[RuleVersion] = []
         self._tick_interval = tick_interval
         self._database_engine = create_engine()
         self._sessions = create_session_factory(self._database_engine)
@@ -25,31 +27,27 @@ class EvaluationWorker:
             lambda: SqlAlchemyUnitOfWork(self._sessions),
         )
 
+    async def start(self) -> None:
+        # Awaited before accepting HTTP requests: database failures fail startup.
+        self.rules = await self._load_rules_and_warm_up()
+        for rule in self.rules:
+            self.markets.resolve(rule.market)
+
+    async def close(self) -> None:
+        await self._database_engine.dispose()
+
     async def run(self) -> None:
-        rules = await self._load_rules_and_warm_up()
-        if not rules:
-            raise RuntimeError("No active rule versions are registered")
         rules_by_market = defaultdict(list)
-        for rule in rules:
+        for rule in self.rules:
             rules_by_market[rule.market].append(rule)
-        queue: asyncio.Queue = asyncio.Queue(maxsize=1_000)
-
-        async def publish(observation) -> None:
-            await queue.put(observation)
-
-        feed_tasks = [
-            asyncio.create_task(HyperliquidObservationFeed(market, publish).run()) for market in rules_by_market
-        ]
-        consumer = asyncio.create_task(self._consume(queue, rules_by_market))
-        ticker = asyncio.create_task(self._tick(rules))
-        tasks = [*feed_tasks, consumer, ticker]
+        tasks = [asyncio.create_task(self._consume(market, rules)) for market, rules in rules_by_market.items()]
+        tasks.append(asyncio.create_task(self._tick(self.rules)))
         try:
             await asyncio.gather(*tasks)
         finally:
             for task in tasks:
                 task.cancel()
             await asyncio.gather(*tasks, return_exceptions=True)
-            await self._database_engine.dispose()
 
     async def _load_rules_and_warm_up(self) -> list[RuleVersion]:
         async with SqlAlchemyUnitOfWork(self._sessions) as unit_of_work:
@@ -72,11 +70,12 @@ class EvaluationWorker:
                     self._windows.add(observation)
         return rules
 
-    async def _consume(self, queue: asyncio.Queue, rules_by_market: dict) -> None:
-        while True:
-            observation = await queue.get()
-            try:
-                processed = await self._service.process(observation, rules_by_market[observation.market])
+    async def _consume(self, market, rules: list[RuleVersion]) -> None:
+        async with self.markets.subscribe(market, ("context", "book")) as updates:
+            async for update in updates:
+                if update.observation is None:
+                    continue
+                processed = await self._service.process(update.observation, rules)
                 for outcome in processed.outcomes:
                     if outcome.event is not None:
                         logger.info(
@@ -85,8 +84,6 @@ class EvaluationWorker:
                             outcome.event.status.value,
                             outcome.event.market.key,
                         )
-            finally:
-                queue.task_done()
 
     async def _tick(self, rules: list[RuleVersion]) -> None:
         while True:
@@ -105,18 +102,8 @@ class EvaluationWorker:
     def _required_horizon(rule: RuleVersion) -> timedelta:
         horizons = [timedelta(minutes=1), *rule.quality.stale_after.values()]
         horizons.extend(
-            predicate.window for predicate in rule.predicates if isinstance(predicate, OpenInterestChangePredicate)
+            predicate.window + predicate.baseline_tolerance
+            for predicate in rule.predicates
+            if isinstance(predicate, OpenInterestChangePredicate)
         )
         return max(horizons)
-
-
-def main() -> None:
-    logging.basicConfig(level=logging.INFO)
-    try:
-        asyncio.run(EvaluationWorker().run())
-    except KeyboardInterrupt:
-        logger.info("Evaluation worker stopped")
-
-
-if __name__ == "__main__":
-    main()

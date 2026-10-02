@@ -1,6 +1,6 @@
-"""Adapters that normalize external market data into domain observations."""
+"""Hyperliquid transport and normalization."""
 
+from .client import HyperliquidClient
 from .hyperliquid import HyperliquidNormalizer
-from .live_feed import HyperliquidObservationFeed
 
-__all__ = ["HyperliquidNormalizer", "HyperliquidObservationFeed"]
+__all__ = ["HyperliquidClient", "HyperliquidNormalizer"]

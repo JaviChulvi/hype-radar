@@ -16,6 +16,7 @@ class HyperliquidNormalizer:
         received_at: datetime,
         oracle_regime: OracleRegime = OracleRegime.UNVERIFIED,
         gap: bool = False,
+        channel: str = "activeAssetCtx",
     ) -> MarketObservation:
         fields = {
             Metric.MARK_PRICE: "markPx",
@@ -33,7 +34,7 @@ class HyperliquidNormalizer:
         return MarketObservation(
             market=market,
             source="hyperliquid",
-            channel="activeAssetCtx",
+            channel=channel,
             observed_at=observed_at,
             received_at=received_at,
             values=values,

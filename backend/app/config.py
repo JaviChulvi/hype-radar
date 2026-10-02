@@ -1,4 +1,5 @@
 from functools import lru_cache
+from typing import Literal
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -13,6 +14,7 @@ class Settings(BaseSettings):
 
     database_url: str = Field(default="postgresql+psycopg://hype_radar:hype_radar@127.0.0.1:5432/hype_radar")
     database_echo: bool = False
+    hyperliquid_network: Literal["mainnet", "testnet"] = "mainnet"
 
 
 @lru_cache

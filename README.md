@@ -34,18 +34,21 @@ The first release will focus on a small basket of markets, potentially HYPE and 
 
 The chart streams Hyperliquid perpetual candles for BTC, ETH, SP500, XYZ100, and BRENTOIL through FastAPI. Use the shadcn/ui market and time interval selectors in the header to switch markets and candle durations. Supported intervals are `1m`, `3m`, `5m` (default), `15m`, `30m`, `1h`, `2h`, `4h`, `8h`, `12h`, `1d`, `3d`, `1w`, and `1M` (one month), matching the [Hyperliquid candle subscription API](https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/websocket/subscriptions). SP500, XYZ100, and BRENTOIL use the trade[XYZ] markets (`xyz:SP500`, `xyz:XYZ100`, and `xyz:BRENTOIL`). One shared ingestion task per requested market/interval pair serves every browser; the latest 200 candles per pair stay in memory.
 
-The live order book follows the selected market alongside the chart (below it on mobile), with cumulative bid/ask depth, spread, exchange-side price grouping, and base/USD size units. It uses the [Hyperliquid `l2Book` snapshot stream](https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/websocket/subscriptions) with `fast: true` through `/ws/book?symbol=BTC&precision=5`. Grouping supports 5 (default), 4, 3, or 2 significant digits. Each market/grouping feed is shared across viewers and released when its last viewer leaves. The fast stream provides up to 5 levels per side, with updates measured around 0.5 seconds apart (exchange-controlled cadence). The panel shows five levels per side. A recent-trades tape fills the column below it with the latest 40 executions, newest first, showing buy/sell side, price, size in the selected base/USD unit, and local time. The `trades` subscription shares the book’s upstream connection; duplicate executions are removed and both views reset when reconnecting or changing markets. Missing or disconnected books are cleared while reconnecting.
+The live order book follows the selected market alongside the chart (below it on mobile), with cumulative bid/ask depth, spread, exchange-side price grouping, and base/USD size units. It uses the [Hyperliquid `l2Book` snapshot stream](https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/websocket/subscriptions) with `fast: true` through `/ws/book?symbol=BTC&precision=5`. Grouping supports 5 (default), 4, 3, or 2 significant digits. Each market/grouping feed is shared across viewers and released when its last viewer leaves. The fast stream provides up to 5 levels per side, with updates measured around 0.5 seconds apart (exchange-controlled cadence). The panel shows five levels per side. A recent-trades tape fills the column below it with the latest 40 executions, newest first, showing buy/sell side, price, size in the selected base/USD unit, and local time. The `trades` subscription is shared per market across all book precisions; duplicate executions are removed. Books and trades have independent upstream connections and clear their own data when reconnecting. Missing or disconnected books are cleared while reconnecting.
 
 The right-side chat panel next to the order book is a session-only demo: `POST /api/chat` accepts a nonblank `message` of up to 4,000 characters and streams a dummy text reply after a short simulated thinking delay. No AI provider, API key, market analysis, alert creation, or conversation storage is involved. Enter sends; Shift+Enter adds a line. Replies can be stopped or retried after a failure, and New chat clears the conversation. The panel respects reduced-motion settings and stacks below the order book on mobile.
 
 Requirements: Python 3.12+, [uv](https://docs.astral.sh/uv/), and Node.js 22.12+.
 
-Start the backend from the repository root:
+Start PostgreSQL, migrate the database, and start the backend from the repository root:
 
 ```sh
+docker compose up -d postgres
 cd backend
+cp .env.example .env  # first setup only
 uv sync
-uv run uvicorn main:app --host 127.0.0.1 --port 8000
+uv run alembic upgrade head
+uv run uvicorn main:app --host 127.0.0.1 --port 8000 --workers 1
 ```
 
 In a second terminal, start the frontend from the repository root:
@@ -56,7 +59,7 @@ npm ci
 npm run dev
 ```
 
-Open **http://127.0.0.1:5173**. The frontend proxies `/ws/candles?symbol=BTC&interval=5m` and `/health` to the backend. The `symbol` parameter accepts `BTC` (default), `ETH`, `SP500`, `XYZ100`, or `BRENTOIL`; the `interval` parameter accepts the intervals above. Unsupported symbols or intervals are rejected. Run one backend worker to retain one exchange connection per market/interval pair. A market/interval feed starts when first requested and stops when its last browser client disconnects, releasing the upstream connection and cached history. Browsers viewing the same pair continue to share one feed. History is loaded on first request and refreshed after upstream reconnection; the chart preserves its last data while reconnecting and clears it when switching markets or intervals. `/health` reports feed status per requested market/interval pair, keyed as `BTC:5m`, for example.
+Open **http://127.0.0.1:5173**. The frontend proxies `/ws/candles?symbol=BTC&interval=5m` and `/health` to the backend. The `symbol` parameter accepts `BTC` (default), `ETH`, `SP500`, `XYZ100`, or `BRENTOIL`; the `interval` parameter accepts the intervals above. Unsupported symbols or intervals are rejected. Run one backend worker to retain one exchange connection per market/interval pair. A market/interval feed starts when first subscribed and stops when its last consumer disconnects, releasing the upstream connection. Bounded cached history remains available for reads; resubscribing reconciles it with fresh exchange history. Browsers viewing the same pair continue to share one feed. History is loaded on first request and refreshed after upstream reconnection; the chart preserves its last data while reconnecting and clears it when switching markets or intervals. `/health` reports feed status per requested market/interval pair, keyed as `BTC:5m`, for example.
 
 To check the frontend's types and production build, run `npm run build` in `frontend/`. No API keys are required.
 
@@ -66,9 +69,92 @@ The Select component is adapted from [shadcn/ui](https://ui.shadcn.com/docs/comp
 
 Run the backend regression tests with `uv run python -m unittest -v` in `backend/`.
 
+## Shared market-data API
+
+The same service serves browser WebSockets, read-only HTTP calls, and deterministic alerts. Agent
+code can call it directly without an LLM framework or API key. Standalone market-data reads do not
+need a database; the FastAPI backend always starts alert evaluation and requires PostgreSQL.
+
+| Object | Responsibility |
+| --- | --- |
+| `HyperliquidClient` (`app/ingestion/client.py`) | Reusable async HTTP client, exchange requests, subscriptions, heartbeat and reconnect handling. |
+| `MarketDataService` (`app/application/market_data.py`) | Registry lookup, shared subscriptions, cached reads, typed snapshots and lifecycle. |
+| Channel feed objects (`feed.py`) | Candle reconciliation, book replacement, context observations and trade deduplication. |
+| `HyperliquidNormalizer` | Convert validated exchange values to deterministic `MarketObservation` records. |
+| `EvaluationWorker` | Consume the shared service and persist rule outcomes; it owns no exchange connections. |
+
+`app/domain/markets.py` is the configured registry: BTC, ETH, HYPE, SP500, XYZ100, and BRENTOIL.
+Display aliases (`SP500`) and exchange names (`xyz:SP500`) resolve to the same identity. The existing
+UI still lists its original five markets. `HYPERLIQUID_NETWORK=mainnet` is the default; `testnet`
+changes both transport URLs. The configured markets must exist on the selected network.
+
+From `backend/`, a standalone read client looks like this:
+
+```python
+import asyncio
+from app.application.market_data import MarketDataService
+from app.ingestion.client import HyperliquidClient
+
+async def main():
+    async with MarketDataService(HyperliquidClient()) as markets:
+        print(await markets.list_markets())
+        snapshot = await markets.get_snapshot("BTC")
+        print(snapshot.fields["mark_price"].value)
+        print(snapshot.model_dump(mode="json"))
+        candles = await markets.get_candles("BTC", interval="5m", limit=200)
+        book = await markets.get_order_book("BTC", precision=5, fast=True)
+        trades = await markets.get_recent_trades("BTC", limit=40)
+        async with markets.subscribe("BTC", channels=("context", "book")) as updates:
+            async for update in updates:
+                print(update.channel, update.status, update.data)
+                if update.status == "live":
+                    break
+
+asyncio.run(main())
+```
+
+Inside the backend, reuse `request.app.state.markets` or inject it into the consumer constructor;
+do not construct a second service. A separately launched script owns independent connections.
+Subscriptions are async context managers: exiting releases that consumer's ownership. Identical
+subscription options share one upstream task. Trades are shared independently of book precision.
+The default subscribed book is ungrouped, normal-depth; UI adapters explicitly request fast grouped
+books. Bounded subscriber queues terminate slow consumers with `SlowConsumer`; an evaluator stops
+rather than silently losing observations.
+
+HTTP equivalents (all GET):
+
+| Route | Parameters |
+| --- | --- |
+| `/api/market-data` | Configured identities, including HYPE. |
+| `/api/market-data/{market}/snapshot` | Combined context and ungrouped normal-depth book. |
+| `/api/market-data/{market}/candles` | `interval=5m`, `limit=200` (1–200). |
+| `/api/market-data/{market}/book` | `precision=5` (2–5 or `full`), `fast=true`; `full` maps to Python `None`. |
+| `/api/market-data/{market}/trades` | `limit=40` (1–40); returns up to that many observed trades. |
+
+```sh
+curl 'http://127.0.0.1:8000/api/market-data/xyz:SP500/snapshot'
+curl 'http://127.0.0.1:8000/api/market-data/BTC/book?precision=full&fast=false'
+```
+
+Financial values are Decimal strings in JSON. Snapshot fields carry `source_at`, `received_at`,
+`timestamp_basis`, and `fresh`/`stale`/`missing` status. Context freshness defaults to 30 seconds;
+book freshness uses the exchange timestamp and a 15-second budget. Rule-specific budgets still
+control evaluation. The snapshot's `assembled_at` is not a common exchange observation time.
+Missing fields stay null; a book update never refreshes OI or funding. Spread and mid derive from
+the same book. Depth sums only supplied levels and includes grouping, actual side counts and
+`quote_notional` units; it is not a full-market liquidity estimate. Funding is the observed raw
+rate, and volume/change refer to the perpetual market, not an underlying stock's official return.
+
+Reads reuse fresh state or perform bounded REST requests (temporary streaming for trades), with
+a total ten-second deadline. A snapshot may contain explicitly stale or missing fields; no usable
+data returns 503. Other read endpoints return 503 when no sufficiently current result is available.
+Unknown markets return 404 and invalid query options return 422. The legacy `/api/markets` numeric
+percentage mapping and existing WebSocket routes remain compatible. `/health` retains chart/book
+sections and adds all active subscriptions plus evaluator status; unhealthy active feeds return 503.
+
 ## Deterministic alert core
 
-The alert core is a separate process from the demo HTTP API. It stores normalized market samples,
+The alert evaluator is an always-running supervised task in the same process as FastAPI, using the same market-data service. It stores normalized market samples,
 immutable rule versions, runtime checkpoints, alert events, evidence, and notification intent in
 PostgreSQL. Event, evidence, runtime, and outbox changes are committed atomically. Economic values
 use `Decimal` in Python and `NUMERIC(38, 18)` in PostgreSQL.
@@ -101,17 +187,21 @@ Run the versioned deterministic replay fixture:
 uv run python -m app.workers.replay tests/fixtures/hype_breakout.json
 ```
 
-Register that example rule and start the live evaluation worker:
+Register that example rule, then start (or restart) the backend:
 
 ```sh
 uv run python -m app.workers.seed_rule tests/fixtures/hype_breakout.json
-uv run python -m app.workers.evaluator
+uv run uvicorn main:app --host 127.0.0.1 --port 8000 --workers 1
 ```
 
-The worker opens one normalized Hyperliquid connection per active market, subscribes to
-`activeAssetCtx` and `l2Book`, rebuilds required windows from stored samples after restart, evaluates
-on observations and timers, and writes emitted events to the console and PostgreSQL. It currently
-loads active rules at startup, so restart it after activating a different rule version. Notification
+The evaluator holds shared context and ungrouped normal-depth book subscriptions for each active
+market. Closing browser tabs cannot stop those subscriptions. It rebuilds required windows from
+stored samples, evaluates observations and timers, and persists emitted events in PostgreSQL.
+It loads rules at startup; restart the backend after activating a different rule version.
+Alert evaluation starts automatically with the backend. With no active rules it stays idle.
+Database/rule-loading failures prevent startup. A runtime evaluator failure stops evaluation and
+makes `/health` return 503; restart after resolving the cause. There is no alert enable/disable setting.
+The former standalone live-evaluator command has been removed; seed and replay commands remain. Notification
 delivery, rule-management HTTP endpoints, authentication, and the visual rule editor remain later
 work; outbox rows are durable but are not sent yet.
 
@@ -128,7 +218,7 @@ TEST_DATABASE_URL=postgresql+psycopg://hype_radar:hype_radar@127.0.0.1:55432/hyp
 
 ## Proposed architecture
 
-Build a modular monolith with separate ingestion, evaluation, API, and notification processes. Share exchange subscriptions per market instead of opening a connection per user.
+The current modular monolith runs ingestion, evaluation, and API tasks in one process. A future notification worker can consume the durable outbox independently. Run exactly one Uvicorn worker: in-memory subscriptions and state are shared within that process.
 
 ```mermaid
 flowchart TD
@@ -168,7 +258,7 @@ Redis, pgvector, object storage for large raw datasets, and a full OpenTelemetry
 
 ## Market data and interpretation
 
-The initial ingestion plan uses `activeAssetCtx`, `bbo` or `l2Book`, and `trades` only when a check needs them. REST `metaAndAssetCtxs` is proposed for startup and reconciliation. Phase 0 must verify channel behavior, fields, cadences, `dex` handling, and API limits for every selected market.
+The current service uses `activeAssetCtx`, `l2Book`, `trades`, and candles on demand, with REST `metaAndAssetCtxs` for context bootstrap and REST book/candle snapshots for cold reads. New markets and deployers still require validation of channel behavior, fields, cadences, and API limits.
 
 | Data | Required interpretation |
 | --- | --- |
