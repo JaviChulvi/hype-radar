@@ -49,7 +49,7 @@ class FeedTests(unittest.IsolatedAsyncioTestCase):
 
                 socket.recv.side_effect = receive
 
-                async def connection(*args, **kwargs):
+                async def connection(*args, socket=socket, **kwargs):
                     yield socket
 
                 data = {**candle(DAY, 2), "s": coin, "i": interval}
@@ -66,10 +66,14 @@ class FeedTests(unittest.IsolatedAsyncioTestCase):
                         snapshot = await self.snapshot(queue)
                         self.assertEqual(snapshot["symbol"], symbol)
                         self.assertEqual(snapshot["interval"], interval)
-                        self.assertEqual(json.loads(socket.send.call_args.args[0])["subscription"]["interval"], interval)
+                        subscription = json.loads(socket.send.call_args.args[0])["subscription"]
+                        self.assertEqual(subscription["interval"], interval)
                         request = http.post.call_args.kwargs["json"]["req"]
                         self.assertEqual(request["interval"], interval)
-                        self.assertEqual(request["endTime"] - request["startTime"], HISTORY_SIZE * INTERVAL_MS[interval])
+                        self.assertEqual(
+                            request["endTime"] - request["startTime"],
+                            HISTORY_SIZE * INTERVAL_MS[interval],
+                        )
                         with self.assertRaises(ValueError):
                             feed.parse_candle({**data, "i": "1m" if interval != "1m" else "1M"})
                         self.assertEqual(json.loads(socket.send.call_args.args[0])["subscription"]["coin"], coin)
@@ -400,7 +404,10 @@ class MarketChangesTests(unittest.TestCase):
             previous = ["100"] * 3 if not json["dex"] else ["100", "100", "0"]
             return httpx.Response(200, request=httpx.Request("POST", url), json=[
                 {"universe": [{"name": name} for name in names]},
-                [{"markPx": mark, "prevDayPx": prev} for mark, prev in zip(marks, previous)],
+                [
+                    {"markPx": mark, "prevDayPx": prev}
+                    for mark, prev in zip(marks, previous, strict=True)
+                ],
             ])
 
         with TestClient(app) as client:

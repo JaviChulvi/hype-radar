@@ -1,0 +1,1 @@
+"""Hype Radar application package."""
