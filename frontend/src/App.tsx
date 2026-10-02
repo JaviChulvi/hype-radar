@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import OrderBook from './OrderBook';
 import Chat from './Chat';
+import Alerts from './Alerts';
 import {
   CandlestickSeries, ColorType, CrosshairMode, LineStyle, createChart,
   type CandlestickData, type UTCTimestamp,
@@ -200,6 +201,7 @@ export default function App() {
           <div className="chart" ref={container} role="img" aria-label={`Live ${symbol} perpetual ${interval} candlestick chart`} />
           {!latest && <p className="loading">Loading {symbol} {interval} candles…</p>}
         </section>
+        <Alerts symbol={symbol} />
         <OrderBook key={symbol} symbol={symbol} />
         <Chat />
       </div>

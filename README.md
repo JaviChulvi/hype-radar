@@ -38,6 +38,10 @@ The live order book follows the selected market alongside the chart (below it on
 
 The right-side chat panel next to the order book is a session-only demo: `POST /api/chat` accepts a nonblank `message` of up to 4,000 characters and streams a dummy text reply after a short simulated thinking delay. No AI provider, API key, market analysis, alert creation, or conversation storage is involved. Enter sends; Shift+Enter adds a line. Replies can be stopped or retried after a failure, and New chat clears the conversation. The panel respects reduced-motion settings and stacks below the order book on mobile.
 
+The bottom-left alerts panel spans the chart and order book, with **Active alerts** and **Alert history** views. On mobile it sits directly below the chart. It refreshes stored rules/events every five seconds through `GET /api/alerts?view=rules|history`; the optional `symbol` filter uses the same market identities as the chart. Each response contains `items` and `has_more`, with the newest 100 rows by default (`limit=1..100`). The current-market checkbox filters either view; all markets are shown by default, including HYPE rules. Tables scroll independently, and failed refreshes label retained rows as last-loaded data.
+
+Active alerts are configured active rule versions, not a claim that evaluation is healthy. Restart the backend after changing rules as described below. History retains each event's original rule name/version and distinguishes event status, condition truth, and quality. This read-only panel uses the existing local, unauthenticated instance model: it shows instance-wide records, excludes owner IDs and delivery recipients, and provides no rule editing or notification delivery. Per-user access remains part of the authentication roadmap.
+
 Requirements: Python 3.12+, [uv](https://docs.astral.sh/uv/), and Node.js 22.12+.
 
 Start PostgreSQL, migrate the database, and start the backend from the repository root:

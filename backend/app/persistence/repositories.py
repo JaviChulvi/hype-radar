@@ -12,6 +12,7 @@ from app.domain.rules import RuleVersion
 from app.engine.rule_engine import RuleRuntimeState
 
 from .models import (
+    AlertEventModel,
     AlertRuleModel,
     AlertRuleVersionModel,
     MarketModel,
@@ -197,6 +198,63 @@ class RuleRepository:
             raise ValueError("Confirmed rule versions are immutable")
         await self._session.flush()
         rule_model.active_version_id = rule.id
+
+
+class AlertReadRepository:
+    def __init__(self, session: AsyncSession):
+        self._session = session
+
+    async def list_rows(self, view: str, market: MarketIdentity | None, limit: int) -> list[dict]:
+        if view == "rules":
+            statement = (
+                select(AlertRuleVersionModel, MarketModel)
+                .join(MarketModel, AlertRuleVersionModel.market_id == MarketModel.id)
+                .join(AlertRuleModel, AlertRuleVersionModel.rule_id == AlertRuleModel.id)
+                .where(
+                    AlertRuleModel.status == "active",
+                    AlertRuleModel.active_version_id == AlertRuleVersionModel.id,
+                )
+                .order_by(AlertRuleVersionModel.created_at.desc(), AlertRuleVersionModel.id.desc())
+            )
+        else:
+            statement = (
+                select(AlertRuleVersionModel, MarketModel, AlertEventModel)
+                .join(MarketModel, AlertRuleVersionModel.market_id == MarketModel.id)
+                .join(AlertEventModel, AlertEventModel.rule_version_id == AlertRuleVersionModel.id)
+                .order_by(AlertEventModel.evaluated_at.desc(), AlertEventModel.id.desc())
+            )
+        if market is not None:
+            statement = statement.where(
+                MarketModel.network == market.network,
+                MarketModel.dex == market.dex,
+                MarketModel.coin == market.coin,
+            )
+        rows = (await self._session.execute(statement.limit(limit))).all()
+        result = []
+        for version, identity, *events in rows:
+            definition = version.definition
+            item = {
+                "id": version.id,
+                "name": definition["name"],
+                "version": version.version,
+                "market": {"network": identity.network, "dex": identity.dex, "coin": identity.coin},
+                "predicates": definition["predicates"],
+                "combinator": definition["combinator"],
+                "persistence_seconds": definition["persistence_seconds"],
+                "cooldown_seconds": definition["cooldown_seconds"],
+                "quality_policy": definition["quality_policy"],
+            }
+            if events:
+                event = events[0]
+                item.update(
+                    id=event.id,
+                    status=event.status,
+                    condition=event.condition_state,
+                    quality=event.quality_status,
+                    evaluated_at=event.evaluated_at,
+                )
+            result.append(item)
+        return result
 
 
 class RuntimeRepository:

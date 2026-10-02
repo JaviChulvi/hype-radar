@@ -7,6 +7,7 @@ from decimal import Decimal
 from unittest.mock import AsyncMock, patch
 from uuid import uuid4
 
+import httpx
 from sqlalchemy import delete, func, select
 
 from app.application.market_data import MarketDataService
@@ -34,6 +35,7 @@ from app.persistence.models import (
 )
 from app.workers.evaluator import EvaluationWorker
 from feed import ContextFeed, SharedFeed
+from main import app
 
 TEST_DATABASE_URL = os.getenv("TEST_DATABASE_URL")
 
@@ -230,6 +232,35 @@ class PostgreSQLPersistenceTests(unittest.IsolatedAsyncioTestCase):
                 await unit_of_work.rules.add_version(
                     replace(replacement, name="Mutated in place"), market_model.id, now
                 )
+
+        # The read API uses the immutable event version, never the current rule name,
+        # and projects only display fields (not ownership or delivery recipients).
+        markets = MarketDataService(HyperliquidClient())
+        app.state.markets = markets
+        app.state.alert_sessions = self.sessions
+        try:
+            async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+                response = await client.get("/api/alerts?view=history&limit=1")
+                self.assertEqual(response.status_code, 200)
+                event_row = response.json()["items"][0]
+                self.assertEqual(event_row["id"], str(outcome.event.id))
+                self.assertEqual(event_row["name"], rule.name)
+                self.assertEqual(event_row["version"], 1)
+                self.assertEqual(event_row["status"], "confirmed")
+                self.assertNotIn("owner_id", event_row)
+                self.assertNotIn("deliveries", event_row)
+                response = await client.get("/api/alerts?view=rules")
+                rule_row = next(item for item in response.json()["items"] if item["id"] == str(replacement.id))
+                self.assertEqual(rule_row["name"], replacement.name)
+                self.assertEqual(rule_row["predicates"][0]["threshold"], "100")
+                # This fixture's network/coin must not leak into native mainnet HYPE.
+                response = await client.get("/api/alerts?symbol=HYPE&view=history")
+                self.assertNotIn(str(outcome.event.id), [item["id"] for item in response.json()["items"]])
+                self.assertEqual((await client.get("/api/alerts?symbol=UNKNOWN")).status_code, 404)
+                for query in ("limit=0", "limit=101", "view=unknown"):
+                    self.assertEqual((await client.get(f"/api/alerts?{query}")).status_code, 422)
+        finally:
+            await markets.close()
 
         async with SqlAlchemyUnitOfWork(self.sessions) as unit_of_work:
             self.assertFalse(await unit_of_work.persist_outcome(outcome))

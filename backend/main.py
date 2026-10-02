@@ -12,6 +12,8 @@ from app.config import get_settings
 from app.domain.market_data import BookPrecision, Candle, Interval
 from app.domain.markets import UI_MARKETS
 from app.ingestion.client import HyperliquidClient
+from app.persistence import create_engine, create_session_factory
+from app.persistence.repositories import AlertReadRepository
 from app.workers.evaluator import EvaluationWorker
 
 logger = logging.getLogger(__name__)
@@ -26,6 +28,8 @@ async def lifespan(app: FastAPI):
     app.state.evaluator_status = "starting"
     evaluator = None
     task = None
+    database = create_engine(settings)
+    app.state.alert_sessions = create_session_factory(database)
     try:
         evaluator = EvaluationWorker(markets)
         await evaluator.start()
@@ -47,6 +51,7 @@ async def lifespan(app: FastAPI):
         if evaluator is not None:
             await evaluator.close()
         await markets.close()
+        await database.dispose()
 
 
 app = FastAPI(title="Hype Radar", lifespan=lifespan)
@@ -112,6 +117,20 @@ async def chat(request: ChatRequest):
 async def market_changes(markets: Markets):
     changes = await markets.market_changes()
     return {symbol: changes[symbol] for symbol in UI_MARKETS}
+
+
+@app.get("/api/alerts")
+async def alerts(
+    request: Request,
+    markets: Markets,
+    view: Literal["rules", "history"] = "rules",
+    symbol: str | None = None,
+    limit: Annotated[int, Query(ge=1, le=100)] = 100,
+):
+    market = resolve(markets, symbol) if symbol is not None else None
+    async with request.app.state.alert_sessions() as session:
+        rows = await AlertReadRepository(session).list_rows(view, market, limit + 1)
+    return {"items": rows[:limit], "has_more": len(rows) > limit}
 
 
 @app.get("/api/market-data")
