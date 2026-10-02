@@ -127,9 +127,14 @@ async def alerts(
     symbol: str | None = None,
     limit: Annotated[int, Query(ge=1, le=100)] = 100,
 ):
-    market = resolve(markets, symbol) if symbol is not None else None
+    visible_markets = [markets.resolve(value) for value in UI_MARKETS]
+    if symbol is not None:
+        market = resolve(markets, symbol)
+        if market not in visible_markets:
+            raise HTTPException(404, "Unknown market")
+        visible_markets = [market]
     async with request.app.state.alert_sessions() as session:
-        rows = await AlertReadRepository(session).list_rows(view, market, limit + 1)
+        rows = await AlertReadRepository(session).list_rows(view, visible_markets, limit + 1)
     return {"items": rows[:limit], "has_more": len(rows) > limit}
 
 

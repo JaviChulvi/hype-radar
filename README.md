@@ -38,7 +38,7 @@ The live order book follows the selected market alongside the chart (below it on
 
 The right-side chat panel next to the order book is a session-only demo: `POST /api/chat` accepts a nonblank `message` of up to 4,000 characters and streams a dummy text reply after a short simulated thinking delay. No AI provider, API key, market analysis, alert creation, or conversation storage is involved. Enter sends; Shift+Enter adds a line. Replies can be stopped or retried after a failure, and New chat clears the conversation. The panel respects reduced-motion settings and stacks below the order book on mobile.
 
-The bottom-left alerts panel spans the chart and order book, with **Active alerts** and **Alert history** views. On mobile it sits directly below the chart. It refreshes stored rules/events every five seconds through `GET /api/alerts?view=rules|history`; the optional `symbol` filter uses the same market identities as the chart. Each response contains `items` and `has_more`, with the newest 100 rows by default (`limit=1..100`). The current-market checkbox filters either view; all markets are shown by default, including HYPE rules. Tables scroll independently, and failed refreshes label retained rows as last-loaded data.
+The bottom-left alerts panel spans the chart and order book, with **Active alerts** and **Alert history** views. On mobile it sits directly below the chart. It refreshes stored rules/events every five seconds through `GET /api/alerts?view=rules|history`; the optional `symbol` filter uses the same market identities as the chart. Each response contains `items` and `has_more`, with the newest 100 rows by default (`limit=1..100`). The current-market checkbox filters either view; the default shows the picker’s BTC, ETH, SP500, XYZ100, and BRENTOIL markets on the configured network. Tables scroll independently, and failed refreshes label retained rows as last-loaded data.
 
 Active alerts are configured active rule versions, not a claim that evaluation is healthy. Restart the backend after changing rules as described below. History retains each event's original rule name/version and distinguishes event status, condition truth, and quality. This read-only panel uses the existing local, unauthenticated instance model: it shows instance-wide records, excludes owner IDs and delivery recipients, and provides no rule editing or notification delivery. Per-user access remains part of the authentication roadmap.
 
@@ -191,10 +191,14 @@ Run the versioned deterministic replay fixture:
 uv run python -m app.workers.replay tests/fixtures/hype_breakout.json
 ```
 
-Register that example rule, then start (or restart) the backend:
+Register a reviewed rule definition for BTC, ETH, SP500, XYZ100, or BRENTOIL on the
+configured network, then start (or restart) the backend. Rule creation and new
+versions reject unsupported markets before writing a rule. HIP-3 definitions must
+use `dex: "xyz"` and the unprefixed coin (for example, `coin: "SP500"`). The HYPE
+replay fixture above is synthetic test data and cannot be registered as an active rule.
 
 ```sh
-uv run python -m app.workers.seed_rule tests/fixtures/hype_breakout.json
+uv run python -m app.workers.seed_rule path/to/your-rule.json
 uv run uvicorn main:app --host 127.0.0.1 --port 8000 --workers 1
 ```
 

@@ -1,12 +1,13 @@
 from datetime import UTC, datetime
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import select, tuple_
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import get_settings
 from app.domain.evaluations import ConditionState
-from app.domain.markets import MarketIdentity
+from app.domain.markets import UI_MARKETS, MarketIdentity, resolve_market
 from app.domain.observations import MarketObservation, Metric
 from app.domain.rules import RuleVersion
 from app.engine.rule_engine import RuleRuntimeState
@@ -159,6 +160,12 @@ class RuleRepository:
         created_at: datetime,
         status: str = "active",
     ) -> None:
+        network = get_settings().hyperliquid_network
+        if rule.market not in {resolve_market(symbol, network) for symbol in UI_MARKETS}:
+            raise ValueError(
+                f"Unsupported alert market: {rule.market.key}. "
+                f"Supported markets on {network}: {', '.join(UI_MARKETS)}"
+            )
         serialized = rule_to_dict(rule)
         rule_model = await self._session.get(AlertRuleModel, rule.rule_id)
         if rule_model is None:
@@ -204,7 +211,7 @@ class AlertReadRepository:
     def __init__(self, session: AsyncSession):
         self._session = session
 
-    async def list_rows(self, view: str, market: MarketIdentity | None, limit: int) -> list[dict]:
+    async def list_rows(self, view: str, markets: list[MarketIdentity], limit: int) -> list[dict]:
         if view == "rules":
             statement = (
                 select(AlertRuleVersionModel, MarketModel)
@@ -223,12 +230,11 @@ class AlertReadRepository:
                 .join(AlertEventModel, AlertEventModel.rule_version_id == AlertRuleVersionModel.id)
                 .order_by(AlertEventModel.evaluated_at.desc(), AlertEventModel.id.desc())
             )
-        if market is not None:
-            statement = statement.where(
-                MarketModel.network == market.network,
-                MarketModel.dex == market.dex,
-                MarketModel.coin == market.coin,
+        statement = statement.where(
+            tuple_(MarketModel.network, MarketModel.dex, MarketModel.coin).in_(
+                [(market.network, market.dex, market.coin) for market in markets]
             )
+        )
         rows = (await self._session.execute(statement.limit(limit))).all()
         result = []
         for version, identity, *events in rows:
