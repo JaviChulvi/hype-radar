@@ -1,6 +1,5 @@
-import { useEffect, useRef, useState } from 'react';
+import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import OrderBook from './OrderBook';
-import Chat from './Chat';
 import Alerts from './Alerts';
 import {
   CandlestickSeries, ColorType, CrosshairMode, LineStyle, createChart,
@@ -12,6 +11,7 @@ const markets = ['BTC', 'ETH', 'SP500', 'XYZ100', 'BRENTOIL'] as const;
 type Symbol = typeof markets[number];
 const intervals = ['1m', '3m', '5m', '15m', '30m', '1h', '2h', '4h', '8h', '12h', '1d', '3d', '1w', '1M'] as const;
 type Interval = typeof intervals[number];
+const Chat = lazy(() => import('./Chat'));
 
 type Candle = { time: number; open: string; high: string; low: string; close: string };
 type Status = 'connecting' | 'live' | 'reconnecting';
@@ -203,7 +203,9 @@ export default function App() {
         </section>
         <Alerts symbol={symbol} />
         <OrderBook key={symbol} symbol={symbol} />
-        <Chat />
+        <Suspense fallback={<aside className="chat-pane"><p className="loading">Loading assistant…</p></aside>}>
+          <Chat />
+        </Suspense>
       </div>
       <footer>
         <a href="https://www.tradingview.com/" target="_blank" rel="noreferrer">

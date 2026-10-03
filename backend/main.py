@@ -5,8 +5,9 @@ from typing import Annotated, Literal
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse, StreamingResponse
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
+from app.application.chat import ChatMessage, ChatNotConfigured, ChatProviderError, OpenRouterChatClient
 from app.application.market_data import MarketDataService, MarketUnavailable, SlowConsumer
 from app.config import get_settings
 from app.domain.market_data import BookPrecision, Candle, Interval
@@ -18,13 +19,25 @@ from app.workers.evaluator import EvaluationWorker
 
 logger = logging.getLogger(__name__)
 Symbol = Literal["BTC", "ETH", "SP500", "XYZ100", "BRENTOIL"]
+AUDIO_FORMATS = {
+    "audio/aac": "aac",
+    "audio/flac": "flac",
+    "audio/mp4": "m4a",
+    "audio/mpeg": "mp3",
+    "audio/ogg": "ogg",
+    "audio/wav": "wav",
+    "audio/webm": "webm",
+    "audio/x-wav": "wav",
+}
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     settings = get_settings()
     markets = MarketDataService(HyperliquidClient(settings.hyperliquid_network))
+    chat_client = OpenRouterChatClient(settings)
     app.state.markets = markets
+    app.state.chat = chat_client
     app.state.evaluator_status = "starting"
     evaluator = None
     task = None
@@ -50,6 +63,7 @@ async def lifespan(app: FastAPI):
             await asyncio.gather(task, return_exceptions=True)
         if evaluator is not None:
             await evaluator.close()
+        await chat_client.close()
         await markets.close()
         await database.dispose()
 
@@ -76,8 +90,21 @@ def resolve(markets: MarketDataService, market: str):
         raise HTTPException(404, "Unknown market") from error
 
 
+class ChatHistoryMessage(BaseModel):
+    role: Literal["user", "assistant"]
+    content: str = Field(min_length=1, max_length=4000)
+
+    @field_validator("content")
+    @classmethod
+    def strip_content(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("Message content must not be blank")
+        return value.strip()
+
+
 class ChatRequest(BaseModel):
     message: str = Field(min_length=1, max_length=4000)
+    history: list[ChatHistoryMessage] = Field(default_factory=list, max_length=20)
 
     @field_validator("message")
     @classmethod
@@ -86,31 +113,65 @@ class ChatRequest(BaseModel):
             raise ValueError("Message must not be blank")
         return value.strip()
 
+    @model_validator(mode="after")
+    def validate_context_size(self):
+        if sum(len(item.content) for item in self.history) + len(self.message) > 20_000:
+            raise ValueError("Conversation context is too large")
+        return self
+
+    def provider_messages(self) -> tuple[ChatMessage, ...]:
+        history = tuple(ChatMessage(item.role, item.content) for item in self.history)
+        return (*history, ChatMessage("user", self.message))
+
 
 @app.post("/api/chat")
 async def chat(request: ChatRequest):
-    async def reply():
-        # Simulate model latency and token delivery without an AI provider.
-        await asyncio.sleep(0.9)
-        excerpt = request.message[:120] + ("…" if len(request.message) > 120 else "")
-        response = (
-            f"I received your message: “{excerpt}”\n\n"
-            "This is a demo reply from Hype Radar. Once an AI provider is connected, "
-            "we can explore market moves, liquidity, and alert ideas here. "
-            "For now, no market analysis has been performed and no alert has been created."
-        )
-        for word in response.split(" "):
-            yield word + " "
-            await asyncio.sleep(0.035)
+    provider: OpenRouterChatClient = app.state.chat
+    try:
+        reply = await provider.open_stream(request.provider_messages())
+    except ChatNotConfigured as error:
+        raise HTTPException(503, "OpenRouter is not configured") from error
+    except ChatProviderError as error:
+        logger.warning("Chat request failed: %s", error)
+        raise HTTPException(502, "The chat provider is unavailable") from error
 
     return StreamingResponse(
-        reply(),
+        reply,
         media_type="text/plain",
         headers={
             "Cache-Control": "no-cache",
             "X-Accel-Buffering": "no",
         },
     )
+
+
+@app.post("/api/chat/transcribe")
+async def transcribe_chat_audio(request: Request):
+    provider: OpenRouterChatClient = app.state.chat
+    content_type = request.headers.get("content-type", "").split(";", 1)[0].strip().lower()
+    audio_format = AUDIO_FORMATS.get(content_type)
+    if audio_format is None:
+        raise HTTPException(415, "Unsupported audio format")
+    content_length = request.headers.get("content-length")
+    if content_length:
+        try:
+            if int(content_length) > provider.max_audio_bytes:
+                raise HTTPException(413, "Audio recording is too large")
+        except ValueError as error:
+            raise HTTPException(400, "Invalid Content-Length header") from error
+    audio = await request.body()
+    if not audio:
+        raise HTTPException(400, "Audio recording is empty")
+    if len(audio) > provider.max_audio_bytes:
+        raise HTTPException(413, "Audio recording is too large")
+    try:
+        text = await provider.transcribe(audio, audio_format)
+    except ChatNotConfigured as error:
+        raise HTTPException(503, "OpenRouter is not configured") from error
+    except ChatProviderError as error:
+        logger.warning("Audio transcription failed: %s", error)
+        raise HTTPException(502, "The transcription provider is unavailable") from error
+    return {"text": text}
 
 
 @app.get("/api/markets")
@@ -171,6 +232,12 @@ async def market_trades(market: str, markets: Markets, limit: Annotated[int, Que
 async def health(markets: Markets):
     state = markets.health()
     state["evaluator"] = {"status": app.state.evaluator_status}
+    state["chat"] = {
+        "status": "configured" if app.state.chat.configured else "unconfigured",
+        "provider": "openrouter",
+        "model": app.state.chat.model,
+        "transcription_model": app.state.chat.transcription_model,
+    }
     failed = app.state.evaluator_status == "failed" or any(
         item["status"] != "live" for item in state["subscriptions"].values()
     )
