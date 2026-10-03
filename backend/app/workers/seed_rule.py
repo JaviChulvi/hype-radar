@@ -25,7 +25,10 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Register an immutable alert rule version")
     parser.add_argument("definition", type=Path)
     arguments = parser.parse_args()
-    asyncio.run(seed(arguments.definition))
+    try:
+        asyncio.run(seed(arguments.definition))
+    except ValueError as error:
+        parser.error(str(error))
 
 
 if __name__ == "__main__":

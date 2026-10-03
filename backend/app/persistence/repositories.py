@@ -1,17 +1,19 @@
 from datetime import UTC, datetime
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import select, tuple_
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import get_settings
 from app.domain.evaluations import ConditionState
-from app.domain.markets import MarketIdentity
+from app.domain.markets import UI_MARKETS, MarketIdentity, resolve_market
 from app.domain.observations import MarketObservation, Metric
 from app.domain.rules import RuleVersion
 from app.engine.rule_engine import RuleRuntimeState
 
 from .models import (
+    AlertEventModel,
     AlertRuleModel,
     AlertRuleVersionModel,
     MarketModel,
@@ -158,6 +160,12 @@ class RuleRepository:
         created_at: datetime,
         status: str = "active",
     ) -> None:
+        network = get_settings().hyperliquid_network
+        if rule.market not in {resolve_market(symbol, network) for symbol in UI_MARKETS}:
+            raise ValueError(
+                f"Unsupported alert market: {rule.market.key}. "
+                f"Supported markets on {network}: {', '.join(UI_MARKETS)}"
+            )
         serialized = rule_to_dict(rule)
         rule_model = await self._session.get(AlertRuleModel, rule.rule_id)
         if rule_model is None:
@@ -197,6 +205,62 @@ class RuleRepository:
             raise ValueError("Confirmed rule versions are immutable")
         await self._session.flush()
         rule_model.active_version_id = rule.id
+
+
+class AlertReadRepository:
+    def __init__(self, session: AsyncSession):
+        self._session = session
+
+    async def list_rows(self, view: str, markets: list[MarketIdentity], limit: int) -> list[dict]:
+        if view == "rules":
+            statement = (
+                select(AlertRuleVersionModel, MarketModel)
+                .join(MarketModel, AlertRuleVersionModel.market_id == MarketModel.id)
+                .join(AlertRuleModel, AlertRuleVersionModel.rule_id == AlertRuleModel.id)
+                .where(
+                    AlertRuleModel.status == "active",
+                    AlertRuleModel.active_version_id == AlertRuleVersionModel.id,
+                )
+                .order_by(AlertRuleVersionModel.created_at.desc(), AlertRuleVersionModel.id.desc())
+            )
+        else:
+            statement = (
+                select(AlertRuleVersionModel, MarketModel, AlertEventModel)
+                .join(MarketModel, AlertRuleVersionModel.market_id == MarketModel.id)
+                .join(AlertEventModel, AlertEventModel.rule_version_id == AlertRuleVersionModel.id)
+                .order_by(AlertEventModel.evaluated_at.desc(), AlertEventModel.id.desc())
+            )
+        statement = statement.where(
+            tuple_(MarketModel.network, MarketModel.dex, MarketModel.coin).in_(
+                [(market.network, market.dex, market.coin) for market in markets]
+            )
+        )
+        rows = (await self._session.execute(statement.limit(limit))).all()
+        result = []
+        for version, identity, *events in rows:
+            definition = version.definition
+            item = {
+                "id": version.id,
+                "name": definition["name"],
+                "version": version.version,
+                "market": {"network": identity.network, "dex": identity.dex, "coin": identity.coin},
+                "predicates": definition["predicates"],
+                "combinator": definition["combinator"],
+                "persistence_seconds": definition["persistence_seconds"],
+                "cooldown_seconds": definition["cooldown_seconds"],
+                "quality_policy": definition["quality_policy"],
+            }
+            if events:
+                event = events[0]
+                item.update(
+                    id=event.id,
+                    status=event.status,
+                    condition=event.condition_state,
+                    quality=event.quality_status,
+                    evaluated_at=event.evaluated_at,
+                )
+            result.append(item)
+        return result
 
 
 class RuntimeRepository:
