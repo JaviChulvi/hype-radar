@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "id": "10000000-0000-0000-0000-000000000001",
+  "rule_id": "10000000-0000-0000-0000-000000000002",
+  "owner_id": "10000000-0000-0000-0000-000000000003",
+  "version": 1,
+  "name": "BTC UI smoke test",
+  "market": {
+    "network": "mainnet",
+    "dex": "",
+    "coin": "BTC"
+  },
+  "predicates": [
+    {
+      "type": "threshold",
+      "id": "btc-positive-price",
+      "metric": "mark_price",
+      "operator": "gt",
+      "threshold": "0",
+      "max_age_seconds": 60
+    }
+  ],
+  "combinator": "all",
+  "persistence_seconds": 0,
+  "cooldown_seconds": 300,
+  "quality_policy": "warn",
+  "quality": {
+    "stale_after_seconds": {
+      "mark_price": 60
+    },
+    "max_clock_skew_seconds": null,
+    "max_spread_bps": null,
+    "min_bid_depth": null,
+    "min_ask_depth": null,
+    "require_verified_oracle": false
+  },
+  "deliveries": [
+    {
+      "channel": "web",
+      "recipient": "local-smoke-test"
+    }
+  ]
+}

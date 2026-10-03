@@ -36,7 +36,16 @@ The chart streams Hyperliquid perpetual candles for BTC, ETH, SP500, XYZ100, and
 
 The live order book follows the selected market alongside the chart (below it on mobile), with cumulative bid/ask depth, spread, exchange-side price grouping, and base/USD size units. It uses the [Hyperliquid `l2Book` snapshot stream](https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/websocket/subscriptions) with `fast: true` through `/ws/book?symbol=BTC&precision=5`. Grouping supports 5 (default), 4, 3, or 2 significant digits. Each market/grouping feed is shared across viewers and released when its last viewer leaves. The fast stream provides up to 5 levels per side, with updates measured around 0.5 seconds apart (exchange-controlled cadence). The panel shows five levels per side. A recent-trades tape fills the column below it with the latest 40 executions, newest first, showing buy/sell side, price, size in the selected base/USD unit, and local time. The `trades` subscription is shared per market across all book precisions; duplicate executions are removed. Books and trades have independent upstream connections and clear their own data when reconnecting. Missing or disconnected books are cleared while reconnecting.
 
-The right-side chat panel next to the order book is a session-only demo: `POST /api/chat` accepts a nonblank `message` of up to 4,000 characters and streams a dummy text reply after a short simulated thinking delay. No AI provider, API key, market analysis, alert creation, or conversation storage is involved. Enter sends; Shift+Enter adds a line. Replies can be stopped or retried after a failure, and New chat clears the conversation. The panel respects reduced-motion settings and stacks below the order book on mobile.
+The right-side chat panel next to the order book uses OpenRouter through the backend. `POST /api/chat`
+accepts a nonblank `message` of up to 4,000 characters plus up to 20 optional `user`/`assistant`
+history messages, then proxies the provider stream as plain text. The API key never reaches the browser.
+Conversation state remains in the current browser session and is sent with each request; it is not
+stored by Hype Radar. Enter sends; Shift+Enter adds a line. Replies can be stopped or retried after a
+failure, and New chat clears the conversation. The panel respects reduced-motion settings and stacks
+below the order book on mobile. The microphone button records up to 60 seconds, sends the audio to
+`POST /api/chat/transcribe`, and inserts the returned transcript into the composer for review without
+sending it automatically. Prompts, responses, and recordings are processed by OpenRouter and its
+selected model provider, so do not submit secrets or personal information.
 
 The bottom-left alerts panel spans the chart and order book, with **Active alerts** and **Alert history** views. On mobile it sits directly below the chart. It refreshes stored rules/events every five seconds through `GET /api/alerts?view=rules|history`; the optional `symbol` filter uses the same market identities as the chart. Each response contains `items` and `has_more`, with the newest 100 rows by default (`limit=1..100`). The current-market checkbox filters either view; the default shows the picker’s BTC, ETH, SP500, XYZ100, and BRENTOIL markets on the configured network. Tables scroll independently, and failed refreshes label retained rows as last-loaded data.
 
@@ -224,6 +233,33 @@ TEST_DATABASE_URL=postgresql+psycopg://hype_radar:hype_radar@127.0.0.1:55432/hyp
   uv run python -m unittest -v tests.test_persistence
 ```
 
+## OpenRouter chat
+
+Create an API key in OpenRouter and add it to `backend/.env`; never commit the real value:
+
+```dotenv
+OPENROUTER_API_KEY=sk-or-v1-...
+OPENROUTER_MODEL=openrouter/auto
+OPENROUTER_TRANSCRIPTION_MODEL=openai/whisper-1
+```
+
+Restart the backend after changing `.env`. `OPENROUTER_MODEL` accepts any model slug available to the
+account. The default `openrouter/auto` delegates model selection to OpenRouter and charges the rate of
+the selected model. `OPENROUTER_SITE_URL` and `OPENROUTER_APP_NAME` configure optional application
+attribution headers. `OPENROUTER_TIMEOUT_SECONDS` and `OPENROUTER_MAX_COMPLETION_TOKENS` bound each
+provider request. Voice input uses OpenRouter's dedicated `/api/v1/audio/transcriptions` endpoint.
+`OPENROUTER_TRANSCRIPTION_LANGUAGE` can contain an ISO-639-1 hint such as `es`; leave it empty for
+automatic language detection. `OPENROUTER_MAX_AUDIO_BYTES` defaults to 10 MiB.
+
+The backend sends a fixed system prompt, recent session history, and the current user message to
+OpenRouter's streaming chat-completions endpoint. It does not currently inject live market snapshots,
+persist conversations, execute trades, create rules, or modify alerts. Missing configuration returns
+`503`; provider connection, authentication, quota, and rate-limit failures detected before streaming
+return `502`. A failure after streaming begins terminates the response so the UI can offer a retry.
+`/health` reports whether chat is configured and which model slug is selected without exposing the API
+key. Audio recordings are held in memory only for the transcription request and are not stored by Hype
+Radar.
+
 ## Proposed architecture
 
 The current modular monolith runs ingestion, evaluation, and API tasks in one process. A future notification worker can consume the durable outbox independently. Run exactly one Uvicorn worker: in-memory subscriptions and state are shared within that process.
@@ -368,7 +404,7 @@ Progress depends on observed feed quality, reproducible false-alarm and outage t
 - Per-field freshness budgets, thresholds, default quality policy, and recovery behavior.
 - Target number of users/rules/markets and expected burst load.
 - Retention, hosting and notification costs, and eventual stock-data licensing.
-- AI provider/model, data policy, and behavior during provider outages.
+- Production model selection, provider data policy, cost limits, rate limiting, and outage behavior.
 
 ## Reference documentation
 
@@ -376,5 +412,5 @@ These are the documentation links cited by the architecture PDF. Their current c
 
 - Hyperliquid: [WebSocket subscriptions](https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/websocket/subscriptions), [WebSocket lifecycle](https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/websocket), [perpetuals info endpoint](https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/info-endpoint/perpetuals), and [API limits](https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/rate-limits-and-user-limits).
 - trade[XYZ]: [oracle-price mechanics](https://docs.trade.xyz/perpetuals/mechanics/oracle-price).
-- AI: [LangChain structured output](https://docs.langchain.com/oss/python/langchain/structured-output) and [vLLM structured outputs](https://docs.vllm.ai/en/stable/features/structured_outputs).
+- AI: [OpenRouter quickstart](https://openrouter.ai/docs/quickstart), [OpenRouter streaming](https://openrouter.ai/docs/api/reference/streaming), [OpenRouter transcription](https://openrouter.ai/docs/guides/overview/multimodal/stt), [LangChain structured output](https://docs.langchain.com/oss/python/langchain/structured-output), and [vLLM structured outputs](https://docs.vllm.ai/en/stable/features/structured_outputs).
 - Storage: [SQLAlchemy session basics](https://docs.sqlalchemy.org/en/20/orm/session_basics.html) and optional [pgvector](https://github.com/pgvector/pgvector).
