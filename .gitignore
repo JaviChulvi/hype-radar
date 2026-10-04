@@ -4,4 +4,15 @@ dist/
 __pycache__/
 .ruff_cache/
 .env
+.env.production
+.secrets/
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+*.tfvars.json
+*.tfplan
+.terraform.tfstate.lock.info
+crash.log
+crash.*.log
 .DS_Store
