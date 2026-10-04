@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { ArrowDown, ArrowUp, MessageSquare, Plus, RotateCcw, Square } from 'lucide-react';
+import Markdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 
 type Message = { id: string; role: 'user' | 'assistant'; content: string; stopped?: boolean };
 type Phase = 'idle' | 'thinking' | 'streaming';
@@ -258,7 +260,14 @@ export default function Chat() {
             <span className={message.role === 'user' ? 'sr-only' : 'chat-author'}>
               {message.role === 'user' ? 'You' : 'Hype Radar'}
             </span>
-            <p className={replyBusy && message.id === messages.at(-1)?.id && message.role === 'assistant' ? 'chat-streaming' : ''}>{message.content}</p>
+            {message.role === 'assistant' ? (
+              <div className={`chat-markdown${replyBusy && message.id === messages.at(-1)?.id ? ' chat-streaming' : ''}`}>
+                <Markdown remarkPlugins={[remarkGfm]} skipHtml components={{
+                  a: ({ children, href }) => <a href={href} target="_blank" rel="noopener noreferrer">{children}</a>,
+                  table: ({ children }) => <div className="chat-table-scroll" role="region" aria-label="Response table" tabIndex={0}><table>{children}</table></div>,
+                }}>{message.content}</Markdown>
+              </div>
+            ) : <p>{message.content}</p>}
             {message.stopped && message.content !== 'Response stopped.' && <span className="chat-stopped">Response stopped</span>}
           </div>
         ))}
