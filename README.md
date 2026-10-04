@@ -359,6 +359,7 @@ Draft activation expires after one hour. `list_alerts` returns up to
 Stopping a response does not undo a committed rule. Check the alerts list after an interrupted write.
 The evaluator also reconciles committed writes whose HTTP response was lost. Pausing releases evaluator-owned
 subscriptions when no remaining rule uses that market; browser-owned subscriptions remain independent.
+Resuming starts a new condition episode and persistence period, preserving the previous cooldown and event sequence.
 
 This remains an unauthenticated, instance-wide app. New agent rules use a server-owned instance identity;
 the model cannot choose owners or delivery recipients. Use the existing deployment access boundary.

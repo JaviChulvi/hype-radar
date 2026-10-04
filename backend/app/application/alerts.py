@@ -8,7 +8,7 @@ from typing import Annotated, Literal
 from uuid import NAMESPACE_URL, UUID, uuid5
 
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import select, tuple_
+from sqlalchemy import select, tuple_, update
 
 from app.domain.markets import UI_MARKETS, market_symbol
 from app.domain.observations import Metric
@@ -20,6 +20,7 @@ from app.persistence.models import (
     AlertRuleModel,
     AlertRuleVersionModel,
     MarketModel,
+    RuleRuntimeModel,
 )
 from app.persistence.repositories import AlertReadRepository
 from app.persistence.serialization import rule_from_dict
@@ -225,8 +226,22 @@ class AlertService:
                 if version is None or version.confirmed_at is None:
                     raise ValueError("Draft alerts cannot be resumed; create the alert first")
                 self._check_market(version)
+                now = datetime.now(UTC)
+                if rule.status == "paused" and status == "active":
+                    # Paused time cannot establish a continuous true episode; retain cooldown and sequence.
+                    await session.execute(
+                        update(RuleRuntimeModel)
+                        .where(RuleRuntimeModel.rule_version_id == version.id)
+                        .values(
+                            condition_state="unknown",
+                            true_since=None,
+                            episode_triggered=False,
+                            blocked_event_recorded=False,
+                            updated_at=now,
+                        )
+                    )
                 rule.status = status
-                rule.updated_at = datetime.now(UTC)
+                rule.updated_at = now
             await self.evaluator.reload_rules()
             return {"alert_id": str(alert_id), "status": status, "monitoring": self.evaluator.monitoring(alert_id)}
 

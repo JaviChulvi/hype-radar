@@ -17,9 +17,10 @@ from app.application.alerts import AlertService, AlertSpec
 from app.application.chat import ChatMessage, ChatNotConfigured
 from app.application.market_data import MarketDataService, MarketUnavailable
 from app.config import Settings
+from app.domain.observations import MarketObservation, Metric
 from app.ingestion.client import HyperliquidClient
 from app.persistence import create_engine, create_session_factory
-from app.persistence.models import AlertEventModel, AlertRuleModel, AlertRuleVersionModel
+from app.persistence.models import AlertEventModel, AlertRuleModel, AlertRuleVersionModel, RuleRuntimeModel
 from app.workers.evaluator import EvaluationWorker
 from feed import ContextFeed, SharedFeed
 
@@ -234,6 +235,77 @@ class AgentAlertTests(unittest.IsolatedAsyncioTestCase):
             finally:
                 task.cancel()
                 await asyncio.gather(task, return_exceptions=True)
+
+    async def test_resume_restarts_persistence_and_preserves_cooldown_and_sequence(self):
+        for persistence, previous_trigger_age, wait_seconds in ((60, 600, 60), (0, 10, 290)):
+            with self.subTest(persistence=persistence):
+                alert_spec = spec().model_copy(update={"persistence_seconds": persistence, "cooldown_seconds": 300})
+                preview = await self.alerts.preview(alert_spec, uuid4())
+                rule_id = UUID(preview["definition"]["rule_id"])
+                version_id = UUID(preview["preview_id"])
+                self.rule_ids.append(rule_id)
+                await self.alerts.create(version_id)
+                now = datetime.now(UTC)
+                before_pause = now - timedelta(seconds=120)
+                last_triggered = now - timedelta(seconds=previous_trigger_age)
+                async with self.sessions() as session, session.begin():
+                    session.add(
+                        RuleRuntimeModel(
+                            rule_version_id=version_id,
+                            condition_state="true",
+                            true_since=before_pause,
+                            last_triggered_at=last_triggered,
+                            trigger_sequence=7,
+                            episode_triggered=persistence == 0,
+                            blocked_event_recorded=True,
+                            last_processed_at=before_pause,
+                            updated_at=before_pause,
+                        )
+                    )
+                await self.alerts.set_status(rule_id, "paused")
+                await self.alerts.set_status(rule_id, "active")
+                rule = next(rule for rule in self.worker.rules if rule.id == version_id)
+
+                async def evaluate(at, price, rule=rule):
+                    self.worker._windows.add(
+                        MarketObservation(
+                            market=rule.market,
+                            source="hyperliquid",
+                            channel="activeAssetCtx",
+                            observed_at=at,
+                            received_at=at,
+                            values={Metric.MARK_PRICE: Decimal(price)},
+                        )
+                    )
+                    return await self.worker._service.evaluate(rule, evaluated_at=at)
+
+                # The price went below the threshold while paused, then returned above it on resume.
+                self.worker._windows.add(
+                    MarketObservation(
+                        market=rule.market,
+                        source="hyperliquid",
+                        channel="activeAssetCtx",
+                        observed_at=now - timedelta(seconds=1),
+                        received_at=now - timedelta(seconds=1),
+                        values={Metric.MARK_PRICE: Decimal("90")},
+                    )
+                )
+                resumed = await evaluate(now, "101")
+                self.assertIsNone(resumed.event)
+                self.assertEqual(resumed.runtime.true_since, now)
+                self.assertFalse(resumed.runtime.episode_triggered)
+                self.assertFalse(resumed.runtime.blocked_event_recorded)
+                self.assertEqual(resumed.runtime.last_triggered_at, last_triggered)
+                self.assertEqual(resumed.runtime.trigger_sequence, 7)
+                # Retrying an already-applied resume must not restart the new persistence period.
+                await self.alerts.set_status(rule_id, "active")
+                waiting = await evaluate(now + timedelta(seconds=wait_seconds - 1), "101")
+                self.assertIsNone(waiting.event)
+                self.assertEqual(waiting.runtime.true_since, now)
+                fired = await evaluate(now + timedelta(seconds=wait_seconds), "101")
+                self.assertEqual(fired.event.status.value, "confirmed")
+                self.assertEqual(fired.runtime.trigger_sequence, 8)
+                self.assertEqual(fired.event.evidence["true_since"], now.isoformat())
 
     async def test_creation_tool_activates_without_confirmation_and_retries_once(self):
         request_id = uuid4()
