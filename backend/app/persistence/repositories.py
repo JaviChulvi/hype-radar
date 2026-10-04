@@ -198,7 +198,7 @@ class RuleRepository:
                     version=rule.version,
                     definition=serialized,
                     created_at=created_at,
-                    confirmed_at=created_at,
+                    confirmed_at=None if status == "draft" else created_at,
                 )
             )
         elif existing_version.definition != serialized:
@@ -211,7 +211,7 @@ class AlertReadRepository:
     def __init__(self, session: AsyncSession):
         self._session = session
 
-    async def list_rows(self, view: str, markets: list[MarketIdentity], limit: int) -> list[dict]:
+    async def list_rows(self, view: str, markets: list[MarketIdentity], limit: int, *, offset: int = 0) -> list[dict]:
         if view == "rules":
             statement = (
                 select(AlertRuleVersionModel, MarketModel)
@@ -235,7 +235,7 @@ class AlertReadRepository:
                 [(market.network, market.dex, market.coin) for market in markets]
             )
         )
-        rows = (await self._session.execute(statement.limit(limit))).all()
+        rows = (await self._session.execute(statement.limit(limit).offset(offset))).all()
         result = []
         for version, identity, *events in rows:
             definition = version.definition
