@@ -1,0 +1,12 @@
+budget_alert_email = "team@example.com"
+
+# Add your public address only if you need direct SSH from your workstation.
+# Browser-based Lightsail SSH remains available without this setting.
+# ssh_allowed_ipv4_cidrs = ["203.0.113.10/32"]
+
+# Optional overrides:
+# aws_region             = "eu-west-1"
+# availability_zone      = "eu-west-1a"
+# key_pair_name          = "my-lightsail-key"
+# enable_auto_snapshots  = false
+# budget_limit_usd       = 15

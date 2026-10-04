@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+exec > >(tee /var/log/hype-radar-bootstrap.log | logger -t hype-radar-bootstrap -s 2>/dev/console) 2>&1
+
+export DEBIAN_FRONTEND=noninteractive
+
+apt-get update
+apt-get install --yes ca-certificates curl git
+
+install -m 0755 -d /etc/apt/keyrings
+curl --fail --silent --show-error --location https://download.docker.com/linux/ubuntu/gpg \
+  --output /etc/apt/keyrings/docker.asc
+chmod a+r /etc/apt/keyrings/docker.asc
+
+. /etc/os-release
+printf '%s\n' \
+  "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu $${VERSION_CODENAME} stable" \
+  > /etc/apt/sources.list.d/docker.list
+
+apt-get update
+apt-get install --yes docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+systemctl enable --now docker
+
+usermod --append --groups docker "${bootstrap_user}"
+install -d -m 0755 -o "${bootstrap_user}" -g "${bootstrap_user}" /opt/hype-radar
+
+# The 1 GB demo instance needs swap to build images and run PostgreSQL reliably.
+if ! swapon --show=NAME --noheadings | grep --quiet '^/swapfile$'; then
+  fallocate --length 2G /swapfile
+  chmod 600 /swapfile
+  mkswap /swapfile
+  swapon /swapfile
+  printf '%s\n' '/swapfile none swap sw 0 0' >> /etc/fstab
+fi
+
+printf '%s\n' 'vm.swappiness=10' > /etc/sysctl.d/99-hype-radar.conf
+sysctl --system
+
+touch /opt/hype-radar/.bootstrap-complete
+chown "${bootstrap_user}:${bootstrap_user}" /opt/hype-radar/.bootstrap-complete
