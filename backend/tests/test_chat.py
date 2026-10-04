@@ -5,77 +5,12 @@ from unittest.mock import AsyncMock, patch
 import httpx
 from fastapi.testclient import TestClient
 
-from app.application.chat import ChatMessage, ChatNotConfigured, ChatProviderError, OpenRouterChatClient
+from app.application.chat import OpenRouterTranscriptionClient
 from app.config import Settings
 from main import app
 
 
-class OpenRouterChatClientTests(unittest.IsolatedAsyncioTestCase):
-    async def test_streams_text_and_sends_history_with_attribution(self):
-        captured = {}
-
-        async def upstream(request: httpx.Request) -> httpx.Response:
-            captured["headers"] = request.headers
-            captured["payload"] = json.loads(request.content)
-            stream = (
-                'data: {"choices":[{"delta":{"content":"Hello"}}]}\n\n'
-                'data: {"choices":[{"delta":{"content":" world"}}]}\n\n'
-                'data: {"choices":[{"delta":{},"finish_reason":"stop"}]}\n\n'
-                "data: [DONE]\n\n"
-            )
-            return httpx.Response(200, text=stream, headers={"Content-Type": "text/event-stream"})
-
-        async with httpx.AsyncClient(transport=httpx.MockTransport(upstream)) as http:
-            client = OpenRouterChatClient(
-                Settings(
-                    openrouter_api_key="test-key",
-                    openrouter_model="test/model",
-                    openrouter_site_url="https://example.test",
-                    openrouter_app_name="Test Radar",
-                ),
-                http,
-            )
-            stream = await client.open_stream(
-                (ChatMessage("user", "First question"), ChatMessage("assistant", "First answer"))
-            )
-            result = "".join([token async for token in stream])
-
-        self.assertEqual(result, "Hello world")
-        self.assertEqual(captured["headers"]["authorization"], "Bearer test-key")
-        self.assertEqual(captured["headers"]["http-referer"], "https://example.test")
-        self.assertEqual(captured["headers"]["x-openrouter-title"], "Test Radar")
-        self.assertEqual(captured["payload"]["model"], "test/model")
-        self.assertTrue(captured["payload"]["stream"])
-        self.assertEqual(captured["payload"]["messages"][1]["content"], "First question")
-        self.assertEqual(captured["payload"]["messages"][2]["content"], "First answer")
-
-    async def test_missing_configuration_and_provider_errors_are_explicit(self):
-        client = OpenRouterChatClient(Settings(openrouter_api_key=None))
-        with self.assertRaises(ChatNotConfigured):
-            await client.open_stream((ChatMessage("user", "Hello"),))
-        await client.close()
-
-        async def rejected(request: httpx.Request) -> httpx.Response:
-            return httpx.Response(429, json={"error": {"message": "rate limited"}})
-
-        async with httpx.AsyncClient(transport=httpx.MockTransport(rejected)) as http:
-            client = OpenRouterChatClient(Settings(openrouter_api_key="test-key"), http)
-            with self.assertRaisesRegex(ChatProviderError, "HTTP 429"):
-                await client.open_stream((ChatMessage("user", "Hello"),))
-
-    async def test_streaming_error_closes_the_upstream_response(self):
-        async def failed_stream(request: httpx.Request) -> httpx.Response:
-            return httpx.Response(
-                200,
-                text='data: {"error":{"message":"provider disconnected"},"choices":[]}\n\n',
-            )
-
-        async with httpx.AsyncClient(transport=httpx.MockTransport(failed_stream)) as http:
-            client = OpenRouterChatClient(Settings(openrouter_api_key="test-key"), http)
-            stream = await client.open_stream((ChatMessage("user", "Hello"),))
-            with self.assertRaisesRegex(ChatProviderError, "streaming error"):
-                _ = [token async for token in stream]
-
+class OpenRouterTranscriptionClientTests(unittest.IsolatedAsyncioTestCase):
     async def test_transcribes_audio_with_the_dedicated_model(self):
         captured = {}
 
@@ -85,7 +20,7 @@ class OpenRouterChatClientTests(unittest.IsolatedAsyncioTestCase):
             return httpx.Response(200, json={"text": "  alerta de bitcoin  "})
 
         async with httpx.AsyncClient(transport=httpx.MockTransport(upstream)) as http:
-            client = OpenRouterChatClient(
+            client = OpenRouterTranscriptionClient(
                 Settings(
                     openrouter_api_key="test-key",
                     openrouter_transcription_model="test/transcriber",
@@ -110,14 +45,17 @@ class ChatHTTPTests(unittest.TestCase):
 
     def test_chat_keeps_endpoint_and_streams_provider_response(self):
         async def tokens():
-            yield "Real "
-            yield "response"
+            yield 'data: {"type":"text","text":"Real response"}\n\n'
+            yield 'data: {"type":"done"}\n\n'
 
-        with TestClient(app) as client, patch.object(
-            app.state.chat,
-            "open_stream",
-            new=AsyncMock(return_value=tokens()),
-        ) as provider:
+        with (
+            TestClient(app) as client,
+            patch.object(
+                app.state.chat,
+                "open_stream",
+                new=AsyncMock(return_value=tokens()),
+            ) as provider,
+        ):
             response = client.post(
                 "/api/chat",
                 json={
@@ -130,13 +68,14 @@ class ChatHTTPTests(unittest.TestCase):
             )
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.text, "Real response")
+        self.assertIn('"text":"Real response"', response.text)
+        self.assertTrue(response.headers["content-type"].startswith("text/event-stream"))
         messages = provider.await_args.args[0]
         self.assertEqual([message.role for message in messages], ["user", "assistant", "user"])
         self.assertEqual(messages[-1].content, "Follow up")
 
     def test_chat_validates_input_and_reports_missing_configuration(self):
-        with TestClient(app) as client, patch.object(app.state.chat, "_api_key", None):
+        with TestClient(app) as client, patch.object(app.state.chat.settings, "openrouter_api_key", None):
             self.assertEqual(client.post("/api/chat", json={"message": "   "}).status_code, 422)
             response = client.post("/api/chat", json={"message": "Hello"})
 
@@ -144,11 +83,14 @@ class ChatHTTPTests(unittest.TestCase):
         self.assertEqual(response.json()["detail"], "OpenRouter is not configured")
 
     def test_audio_endpoint_validates_and_transcribes_browser_recordings(self):
-        with TestClient(app) as client, patch.object(
-            app.state.chat,
-            "transcribe",
-            new=AsyncMock(return_value="alerta de bitcoin"),
-        ) as provider:
+        with (
+            TestClient(app) as client,
+            patch.object(
+                app.state.transcription,
+                "transcribe",
+                new=AsyncMock(return_value="alerta de bitcoin"),
+            ) as provider,
+        ):
             response = client.post(
                 "/api/chat/transcribe",
                 content=b"webm-audio",

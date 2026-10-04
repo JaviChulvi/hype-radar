@@ -16,7 +16,7 @@ class Settings(BaseSettings):
     database_echo: bool = False
     hyperliquid_network: Literal["mainnet", "testnet"] = "mainnet"
     openrouter_api_key: SecretStr | None = None
-    openrouter_model: str = "openrouter/auto"
+    openrouter_model: str = "deepseek/deepseek-v4-flash"
     openrouter_api_url: str = "https://openrouter.ai/api/v1/chat/completions"
     openrouter_transcription_model: str = "openai/whisper-1"
     openrouter_transcription_api_url: str = "https://openrouter.ai/api/v1/audio/transcriptions"
@@ -24,7 +24,7 @@ class Settings(BaseSettings):
     openrouter_site_url: str | None = "http://127.0.0.1:5173"
     openrouter_app_name: str = "Hype Radar"
     openrouter_timeout_seconds: float = Field(default=60, gt=0, le=300)
-    openrouter_max_completion_tokens: int = Field(default=800, ge=1, le=16_384)
+    openrouter_max_completion_tokens: int = Field(default=4096, ge=1, le=16_384)
     openrouter_max_audio_bytes: int = Field(default=10 * 1024 * 1024, ge=1024, le=50 * 1024 * 1024)
 
 

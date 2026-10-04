@@ -15,7 +15,7 @@ AI assistance will make rules easier to express and events easier to understand.
 ## Core capabilities
 
 - **Custom market conditions.** Combine price, open interest (OI), and funding predicates with explicit windows, thresholds, persistence requirements, and cooldowns.
-- **Visual and natural-language rule creation.** Build conditions in a structured editor or describe them in plain language, then review and confirm the exact rule before activation.
+- **Visual and natural-language rule creation.** Build conditions in a structured editor or describe them in plain language, then create the rule directly from an explicit request; ask for a preview when you only want a draft.
 - **Liquidity-aware alerts.** Evaluate spread, order-book depth, activity, and data freshness alongside the primary condition, with configurable warning and blocking policies.
 - **HIP-3 market context.** Surface session transitions, reference-price divergence, and verified oracle-regime observations for the selected deployer.
 - **Web and Telegram notifications.** Receive event summaries with supporting evidence, quality warnings, and a link to the full breakdown.
@@ -26,7 +26,7 @@ AI assistance will make rules easier to express and events easier to understand.
 
 > Alert me when HYPE moves above my price threshold, open interest rises over the last 15 minutes, and the spread stays below my limit.
 
-The user reviews the resulting conditions and activates the rule. When they are met, the alert includes the observed values, timestamps, and quality checks. If the data are incomplete or liquidity is weak, the configured policy determines whether to warn or block the notification, with the reason visible in the event history.
+The agent creates and activates the requested rule, then summarizes its exact conditions. When they are met, the alert includes the observed values, timestamps, and quality checks. If the data are incomplete or liquidity is weak, the configured policy determines whether to warn or block the notification, with the reason visible in the event history.
 
 The first release will focus on a small basket of markets, potentially HYPE and selected instruments from one HIP-3 deployer. Delivery starts with the deterministic engine and visual editor, followed by natural-language assistance. The roadmap prioritizes reliable detection, useful context, and a complete evidence trail.
 
@@ -38,7 +38,7 @@ The live order book follows the selected market alongside the chart (below it on
 
 The right-side chat panel next to the order book uses OpenRouter through the backend. `POST /api/chat`
 accepts a nonblank `message` of up to 4,000 characters plus up to 20 optional `user`/`assistant`
-history messages, then proxies the provider stream as plain text. The API key never reaches the browser.
+history messages, then runs the LangChain market agent and streams SSE events for text, tools and alert changes. The API key never reaches the browser.
 Conversation state remains in the current browser session and is sent with each request; it is not
 stored by Hype Radar. Enter sends; Shift+Enter adds a line. Replies can be stopped or retried after a
 failure, and New chat clears the conversation. The panel respects reduced-motion settings and stacks
@@ -49,7 +49,7 @@ selected model provider, so do not submit secrets or personal information.
 
 The bottom-left alerts panel spans the chart and order book, with **Active alerts** and **Alert history** views. On mobile it sits directly below the chart. It refreshes stored rules/events every five seconds through `GET /api/alerts?view=rules|history`; the optional `symbol` filter uses the same market identities as the chart. Each response contains `items` and `has_more`, with the newest 100 rows by default (`limit=1..100`). The current-market checkbox filters either view; the default shows the picker’s BTC, ETH, SP500, XYZ100, and BRENTOIL markets on the configured network. Tables scroll independently, and failed refreshes label retained rows as last-loaded data.
 
-Active alerts are configured active rule versions, not a claim that evaluation is healthy. Restart the backend after changing rules as described below. History retains each event's original rule name/version and distinguishes event status, condition truth, and quality. This read-only panel uses the existing local, unauthenticated instance model: it shows instance-wide records, excludes owner IDs and delivery recipients, and provides no rule editing or notification delivery. Per-user access remains part of the authentication roadmap.
+Active alerts are configured active rule versions, not a claim that evaluation is healthy. Rules created or paused through the agent are applied immediately; other database changes are reconciled within five seconds. History retains each event's original rule name/version and distinguishes event status, condition truth, and quality. This read-only panel uses the existing local, unauthenticated instance model: it shows instance-wide records, excludes owner IDs and delivery recipients, and provides no rule editing or notification delivery. Per-user access remains part of the authentication roadmap.
 
 Requirements: Python 3.12+, [uv](https://docs.astral.sh/uv/), and Node.js 22.12+.
 
@@ -285,7 +285,7 @@ uv run python -m app.workers.replay tests/fixtures/hype_breakout.json
 ```
 
 Register a reviewed rule definition for BTC, ETH, SP500, XYZ100, or BRENTOIL on the
-configured network, then start (or restart) the backend. Rule creation and new
+configured network. A running backend picks up changes within five seconds. Rule creation and new
 versions reject unsupported markets before writing a rule. HIP-3 definitions must
 use `dex: "xyz"` and the unprefixed coin (for example, `coin: "SP500"`). The HYPE
 replay fixture above is synthetic test data and cannot be registered as an active rule.
@@ -298,10 +298,10 @@ uv run uvicorn main:app --host 127.0.0.1 --port 8000 --workers 1
 The evaluator holds shared context and ungrouped normal-depth book subscriptions for each active
 market. Closing browser tabs cannot stop those subscriptions. It rebuilds required windows from
 stored samples, evaluates observations and timers, and persists emitted events in PostgreSQL.
-It loads rules at startup; restart the backend after activating a different rule version.
+It loads rules at startup, applies agent changes immediately, and reconciles stored active versions every five seconds.
 Alert evaluation starts automatically with the backend. With no active rules it stays idle.
 Database/rule-loading failures prevent startup. A runtime evaluator failure stops evaluation and
-makes `/health` return 503; restart after resolving the cause. There is no alert enable/disable setting.
+makes `/health` return 503; restart after resolving the cause. The agent can pause or resume confirmed alerts.
 The former standalone live-evaluator command has been removed; seed and replay commands remain. Notification
 delivery, rule-management HTTP endpoints, authentication, and the visual rule editor remain later
 work; outbox rows are durable but are not sent yet.
@@ -323,26 +323,53 @@ Create an API key in OpenRouter and add it to `backend/.env`; never commit the r
 
 ```dotenv
 OPENROUTER_API_KEY=sk-or-v1-...
-OPENROUTER_MODEL=openrouter/auto
+OPENROUTER_MODEL=deepseek/deepseek-v4-flash
 OPENROUTER_TRANSCRIPTION_MODEL=openai/whisper-1
 ```
 
 Restart the backend after changing `.env`. `OPENROUTER_MODEL` accepts any model slug available to the
-account. The default `openrouter/auto` delegates model selection to OpenRouter and charges the rate of
-the selected model. `OPENROUTER_SITE_URL` and `OPENROUTER_APP_NAME` configure optional application
+account with tool-calling support. The default is `deepseek/deepseek-v4-flash`; routing requires providers
+to support the requested parameters. `OPENROUTER_SITE_URL` and `OPENROUTER_APP_NAME` configure optional application
 attribution headers. `OPENROUTER_TIMEOUT_SECONDS` and `OPENROUTER_MAX_COMPLETION_TOKENS` bound each
 provider request. Voice input uses OpenRouter's dedicated `/api/v1/audio/transcriptions` endpoint.
 `OPENROUTER_TRANSCRIPTION_LANGUAGE` can contain an ISO-639-1 hint such as `es`; leave it empty for
 automatic language detection. `OPENROUTER_MAX_AUDIO_BYTES` defaults to 10 MiB.
 
-The backend sends a fixed system prompt, recent session history, and the current user message to
-OpenRouter's streaming chat-completions endpoint. It does not currently inject live market snapshots,
-persist conversations, execute trades, create rules, or modify alerts. Missing configuration returns
-`503`; provider connection, authentication, quota, and rate-limit failures detected before streaming
-return `502`. A failure after streaming begins terminates the response so the UI can offer a retry.
-`/health` reports whether chat is configured and which model slug is selected without exposing the API
-key. Audio recordings are held in memory only for the transcription request and are not stored by Hype
-Radar.
+`backend/app/application/agent.py` uses `langchain.agents.create_agent` and `ChatOpenRouter` with ten typed tools:
+
+- `list_markets`, `get_market_snapshot`, `get_candles`, `get_market_microstructure`, `get_metric_history`.
+- `preview_alert`, `create_alert`, `list_alerts`, `set_alert_status`, `get_alert_event`.
+
+Market tools share the dashboard's `MarketDataService`. They report sources, timestamps, units and
+coverage limitations. Candle results contain OHLC prices (no volume); metric history is limited to
+200 observations from at most 24 hours and may be incomplete if the market was not monitored.
+News search, technical-indicator alert predicates, and external notification delivery remain future work.
+
+An explicit request to create an alert invokes `create_alert` with its typed conditions and activates it
+in the same turn. There is no confirmation card, extra button or confirmation token. The agent reports the
+saved definition and actual monitoring state. Ambiguous requests still require the missing conditions.
+`preview_alert` is available for explicit preview-only requests; it saves an inactive draft and explains it
+in the conversation without an activation component. Internally creation validates an immutable version
+before activation. `request_id` and normalized conditions identify a saved rule across retries, independent
+of tool-call order, generated names, decimal formatting and predicate order. Equivalent conditions reuse the
+saved definition and do not reactivate a subsequently paused rule; different markets or conditions identify
+separate rules. This deduplicates equivalent tool calls, not arbitrary changes to model-generated conditions.
+Draft activation expires after one hour. `list_alerts` returns up to
+30 rules or events per page; pass its `next_offset` with the same filters to retrieve older entries.
+Stopping a response does not undo a committed rule. Check the alerts list after an interrupted write.
+The evaluator also reconciles committed writes whose HTTP response was lost. Pausing releases evaluator-owned
+subscriptions when no remaining rule uses that market; browser-owned subscriptions remain independent.
+
+This remains an unauthenticated, instance-wide app. New agent rules use a server-owned instance identity;
+the model cannot choose owners or delivery recipients. Use the existing deployment access boundary.
+
+`POST /api/chat` returns `text/event-stream` with JSON `data:` frames of types `text`, `tool_start`,
+`tool_end`, `alert_changed`, `done`, and `error`. Each turn is limited to six model calls,
+twelve tool calls, and 75 seconds. Missing configuration returns `503`; errors during the agent run
+produce an explicit `error` event instead of a successful completion. Retries preserve their request ID.
+Conversation text remains browser-local and bounded; the server persists alert previews, rules and evidence.
+`/health` reports the configured model and evaluator state without exposing credentials.
+Audio recordings are held in memory only for transcription and are not stored by Hype Radar.
 
 ## Proposed architecture
 
@@ -405,7 +432,7 @@ Use `EXTERNO` or `INTERNO` only with direct, validated evidence. Otherwise expos
 
 ## Rule and alert lifecycle
 
-1. **Draft and confirm.** The visual editor or optional AI parser produces typed predicates. The backend validates markets, units, windows, and thresholds. The user reviews and confirms an immutable rule version; AI cannot activate or modify it independently.
+1. **Request and create.** An explicit user request lets the agent produce typed predicates and activate the immutable rule version directly. The backend validates markets, units, windows, and thresholds. Preview-only requests remain inactive; read-only analysis does not authorize mutations.
 2. **Warm up.** Load active rules, index them by market and dependent metric, and build the required observation windows. Incomplete windows remain unknown.
 3. **Ingest.** Stamp reception time, validate identity and schema, handle duplicates/out-of-order observations according to channel guarantees, and update recent state. Batch sample persistence outside the critical evaluation path.
 4. **Evaluate.** Reevaluate affected rules on relevant metric changes and timers for persistence, stale data, and cooldown. Each field has its own freshness budget.
@@ -442,7 +469,7 @@ Instrument identity is `(network, dex, coin)`, never `coin` alone. Store economi
 | `markets` | Instrument identity, units, applicable timezone/session, and metadata version. |
 | `market_samples` | Per-channel values, provenance, timestamps, available sequence/IDs, gap flags, and traceable payloads. |
 | `regime_observations` | Source, observation time, verified/unknown state, confirmation evidence, and reason. |
-| `alert_rules`, `alert_rule_versions` | Owner, lifecycle, policy, cooldown, delivery limits, and immutable typed definitions with user confirmation. |
+| `alert_rules`, `alert_rule_versions` | Owner, lifecycle, policy, cooldown, delivery limits, and immutable typed definitions with an activation timestamp (`confirmed_at`). |
 | `rule_runtime` | Last evaluation state, persistence duration, last trigger, cooldown, processed-data cursor, and restart checkpoints. |
 | `alert_events`, `alert_evidence` | Rule version, transition, fingerprint, event status, observations, predicate results, quality decisions, and reason codes. |
 | `notification_outbox`, `deliveries` | Notification intent, recipient/channel, attempts, provider results, and unique `(event_id, channel, recipient)`. |
@@ -477,7 +504,7 @@ Telegram delivery time and exchange publication cadence are external factors. Ke
 | **0 — Feasibility** | Small ingestion prototype/dataset; verify market identity, fields, cadence, freshness, API limits, permissions, and oracle-state observability. | A per-market feasibility matrix and go/no-go decision, including explicit `NO_VERIFICADO` behavior where necessary. |
 | **1 — Deterministic core** | Schema/migrations, subscriptions, samples, windowed evaluation, quality checks, replay, recovery, and auditable events. | Reproducible console alerts with recorded evidence, without AI. |
 | **2 — Product beta** | FastAPI, authentication, React UI, visual editor, event history, Telegram/outbox, live updates, and observability. | A beta for a small user group with traceable alert and delivery behavior. |
-| **3 — AI assistance** | Natural-language rule proposals and controlled explanations; compare providers using the fixed corpus. | User-confirmed rules and evidence-grounded explanations passing the evaluation set. |
+| **3 — AI assistance** | Natural-language rule proposals and controlled explanations; compare providers using the fixed corpus. | User-requested rules and evidence-grounded explanations passing the evaluation set. |
 
 Progress depends on observed feed quality, reproducible false-alarm and outage tests, verified oracle context or an explicit unknown fallback, and demonstrated usefulness of caution-rich alerts compared with conventional alerts.
 

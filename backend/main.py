@@ -2,12 +2,15 @@ import asyncio
 import logging
 from contextlib import asynccontextmanager
 from typing import Annotated, Literal
+from uuid import UUID, uuid4
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-from app.application.chat import ChatMessage, ChatNotConfigured, ChatProviderError, OpenRouterChatClient
+from app.application.agent import ChatAgentService
+from app.application.alerts import AlertService
+from app.application.chat import ChatMessage, ChatNotConfigured, ChatProviderError, OpenRouterTranscriptionClient
 from app.application.market_data import MarketDataService, MarketUnavailable, SlowConsumer
 from app.config import get_settings
 from app.domain.market_data import BookPrecision, Candle, Interval
@@ -35,9 +38,9 @@ AUDIO_FORMATS = {
 async def lifespan(app: FastAPI):
     settings = get_settings()
     markets = MarketDataService(HyperliquidClient(settings.hyperliquid_network))
-    chat_client = OpenRouterChatClient(settings)
+    transcription = OpenRouterTranscriptionClient(settings)
     app.state.markets = markets
-    app.state.chat = chat_client
+    app.state.transcription = transcription
     app.state.evaluator_status = "starting"
     evaluator = None
     task = None
@@ -46,6 +49,9 @@ async def lifespan(app: FastAPI):
     try:
         evaluator = EvaluationWorker(markets)
         await evaluator.start()
+        app.state.evaluator = evaluator
+        alerts = AlertService(app.state.alert_sessions, markets, evaluator)
+        app.state.chat = ChatAgentService(settings, markets, alerts)
         app.state.evaluator_status = "running" if evaluator.rules else "idle"
 
         async def evaluate():
@@ -63,7 +69,9 @@ async def lifespan(app: FastAPI):
             await asyncio.gather(task, return_exceptions=True)
         if evaluator is not None:
             await evaluator.close()
-        await chat_client.close()
+        await transcription.close()
+        if hasattr(app.state, "chat"):
+            await app.state.chat.close()
         await markets.close()
         await database.dispose()
 
@@ -104,6 +112,7 @@ class ChatHistoryMessage(BaseModel):
 
 class ChatRequest(BaseModel):
     message: str = Field(min_length=1, max_length=4000)
+    request_id: UUID = Field(default_factory=uuid4)
     history: list[ChatHistoryMessage] = Field(default_factory=list, max_length=20)
 
     @field_validator("message")
@@ -126,9 +135,12 @@ class ChatRequest(BaseModel):
 
 @app.post("/api/chat")
 async def chat(request: ChatRequest):
-    provider: OpenRouterChatClient = app.state.chat
+    provider: ChatAgentService = app.state.chat
     try:
-        reply = await provider.open_stream(request.provider_messages())
+        reply = await provider.open_stream(
+            request.provider_messages(),
+            request_id=request.request_id,
+        )
     except ChatNotConfigured as error:
         raise HTTPException(503, "OpenRouter is not configured") from error
     except ChatProviderError as error:
@@ -137,7 +149,7 @@ async def chat(request: ChatRequest):
 
     return StreamingResponse(
         reply,
-        media_type="text/plain",
+        media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",
             "X-Accel-Buffering": "no",
@@ -147,7 +159,7 @@ async def chat(request: ChatRequest):
 
 @app.post("/api/chat/transcribe")
 async def transcribe_chat_audio(request: Request):
-    provider: OpenRouterChatClient = app.state.chat
+    provider: OpenRouterTranscriptionClient = app.state.transcription
     content_type = request.headers.get("content-type", "").split(";", 1)[0].strip().lower()
     audio_format = AUDIO_FORMATS.get(content_type)
     if audio_format is None:
@@ -231,12 +243,15 @@ async def market_trades(market: str, markets: Markets, limit: Annotated[int, Que
 @app.get("/health")
 async def health(markets: Markets):
     state = markets.health()
-    state["evaluator"] = {"status": app.state.evaluator_status}
+    evaluator_status = app.state.evaluator_status
+    if evaluator_status in {"running", "idle"}:
+        evaluator_status = "running" if app.state.evaluator.rules else "idle"
+    state["evaluator"] = {"status": evaluator_status, "active_rules": len(app.state.evaluator.rules)}
     state["chat"] = {
         "status": "configured" if app.state.chat.configured else "unconfigured",
         "provider": "openrouter",
         "model": app.state.chat.model,
-        "transcription_model": app.state.chat.transcription_model,
+        "transcription_model": app.state.transcription.transcription_model,
     }
     failed = app.state.evaluator_status == "failed" or any(
         item["status"] != "live" for item in state["subscriptions"].values()

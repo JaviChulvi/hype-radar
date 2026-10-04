@@ -2,6 +2,7 @@ import asyncio
 import logging
 from collections import defaultdict
 from datetime import UTC, datetime, timedelta
+from time import monotonic
 
 from app.application import EvaluationService
 from app.application.market_data import MarketDataService
@@ -19,6 +20,9 @@ class EvaluationWorker:
         self._tick_interval = tick_interval
         self._database_engine = create_engine()
         self._sessions = create_session_factory(self._database_engine)
+        self._rules_lock = asyncio.Lock()
+        self._feeds: dict = {}
+        self._running = False
         self._windows = ObservationWindowStore()
         self._engine = RuleEngine(self._windows)
         self._service = EvaluationService(
@@ -36,20 +40,75 @@ class EvaluationWorker:
     async def close(self) -> None:
         await self._database_engine.dispose()
 
-    async def run(self) -> None:
-        rules_by_market = defaultdict(list)
-        for rule in self.rules:
-            rules_by_market[rule.market].append(rule)
-        tasks = [asyncio.create_task(self._consume(market, rules)) for market, rules in rules_by_market.items()]
-        tasks.append(asyncio.create_task(self._tick(self.rules)))
-        try:
-            await asyncio.gather(*tasks)
-        finally:
-            for task in tasks:
+    def monitoring(self, rule_id) -> str:
+        if not self._running:
+            return "evaluator_unavailable"
+        rule = next((rule for rule in self.rules if rule.rule_id == rule_id), None)
+        if rule is None:
+            return "inactive"
+        task = self._feeds.get(rule.market)
+        return "monitoring" if task is not None and not task.done() else "evaluator_unavailable"
+
+    async def reload_rules(self) -> None:
+        async with self._rules_lock:
+            async with SqlAlchemyUnitOfWork(self._sessions) as uow:
+                active = await uow.rules.list_active()
+            if {rule.id for rule in active} != {rule.id for rule in self.rules}:
+                self.rules = await self._load_rules_and_warm_up()
+            if self._running:
+                await self._sync_feeds()
+
+    async def _sync_feeds(self) -> None:
+        wanted = {rule.market for rule in self.rules}
+        for market in list(self._feeds):
+            if market not in wanted:
+                task = self._feeds.pop(market)
                 task.cancel()
-            await asyncio.gather(*tasks, return_exceptions=True)
+                await asyncio.gather(task, return_exceptions=True)
+        for market in wanted:
+            if market not in self._feeds:
+                self._feeds[market] = asyncio.create_task(self._consume(market))
+
+    async def run(self) -> None:
+        self._running = True
+        try:
+            async with self._rules_lock:
+                await self._sync_feeds()
+            next_refresh = monotonic() + 5
+            while True:
+                tick = asyncio.create_task(asyncio.sleep(self._tick_interval))
+                try:
+                    await asyncio.wait([tick, *self._feeds.values()], return_when=asyncio.FIRST_COMPLETED)
+                finally:
+                    tick.cancel()
+                    await asyncio.gather(tick, return_exceptions=True)
+                # Reconcile committed changes even if the creating HTTP request was disconnected.
+                if monotonic() >= next_refresh:
+                    await self.reload_rules()
+                    next_refresh = monotonic() + 5
+                async with self._rules_lock:
+                    for task in self._feeds.values():
+                        if task.done():
+                            await task
+                            raise RuntimeError("Market subscription ended unexpectedly")
+                    for rule in self.rules:
+                        outcome = await self._service.evaluate(rule)
+                        if outcome.event is not None:
+                            logger.info(
+                                "Timer event %s status=%s market=%s",
+                                outcome.event.id,
+                                outcome.event.status.value,
+                                outcome.event.market.key,
+                            )
+        finally:
+            self._running = False
+            for task in self._feeds.values():
+                task.cancel()
+            await asyncio.gather(*self._feeds.values(), return_exceptions=True)
+            self._feeds.clear()
 
     async def _load_rules_and_warm_up(self) -> list[RuleVersion]:
+        windows = ObservationWindowStore()
         async with SqlAlchemyUnitOfWork(self._sessions) as unit_of_work:
             rules = await unit_of_work.rules.list_active()
             now = datetime.now(UTC)
@@ -67,15 +126,20 @@ class EvaluationWorker:
                     now - horizon,
                 )
                 for observation in observations:
-                    self._windows.add(observation)
+                    windows.add(observation)
+        self._windows = windows
+        self._engine = RuleEngine(windows)
+        self._service = EvaluationService(windows, self._engine, lambda: SqlAlchemyUnitOfWork(self._sessions))
         return rules
 
-    async def _consume(self, market, rules: list[RuleVersion]) -> None:
+    async def _consume(self, market) -> None:
         async with self.markets.subscribe(market, ("context", "book")) as updates:
             async for update in updates:
                 if update.observation is None:
                     continue
-                processed = await self._service.process(update.observation, rules)
+                async with self._rules_lock:
+                    rules = [rule for rule in self.rules if rule.market == market]
+                    processed = await self._service.process(update.observation, rules)
                 for outcome in processed.outcomes:
                     if outcome.event is not None:
                         logger.info(
@@ -85,22 +149,13 @@ class EvaluationWorker:
                             outcome.event.market.key,
                         )
 
-    async def _tick(self, rules: list[RuleVersion]) -> None:
-        while True:
-            await asyncio.sleep(self._tick_interval)
-            for rule in rules:
-                outcome = await self._service.evaluate(rule)
-                if outcome.event is not None:
-                    logger.info(
-                        "Timer event %s status=%s market=%s",
-                        outcome.event.id,
-                        outcome.event.status.value,
-                        outcome.event.market.key,
-                    )
-
     @staticmethod
     def _required_horizon(rule: RuleVersion) -> timedelta:
-        horizons = [timedelta(minutes=1), *rule.quality.stale_after.values()]
+        horizons = [
+            timedelta(minutes=1),
+            *rule.quality.stale_after.values(),
+            *(predicate.max_age for predicate in rule.predicates),
+        ]
         horizons.extend(
             predicate.window + predicate.baseline_tolerance
             for predicate in rule.predicates
