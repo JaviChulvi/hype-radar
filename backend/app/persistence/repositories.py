@@ -211,14 +211,16 @@ class AlertReadRepository:
     def __init__(self, session: AsyncSession):
         self._session = session
 
-    async def list_rows(self, view: str, markets: list[MarketIdentity], limit: int, *, offset: int = 0) -> list[dict]:
+    async def list_rows(
+        self, view: str, markets: list[MarketIdentity], limit: int, *, offset: int = 0, status: str = "active"
+    ) -> list[dict]:
         if view == "rules":
             statement = (
                 select(AlertRuleVersionModel, MarketModel)
                 .join(MarketModel, AlertRuleVersionModel.market_id == MarketModel.id)
                 .join(AlertRuleModel, AlertRuleVersionModel.rule_id == AlertRuleModel.id)
                 .where(
-                    AlertRuleModel.status == "active",
+                    AlertRuleModel.status == status,
                     AlertRuleModel.active_version_id == AlertRuleVersionModel.id,
                 )
                 .order_by(AlertRuleVersionModel.created_at.desc(), AlertRuleVersionModel.id.desc())
@@ -250,6 +252,8 @@ class AlertReadRepository:
                 "cooldown_seconds": definition["cooldown_seconds"],
                 "quality_policy": definition["quality_policy"],
             }
+            if view == "rules":
+                item["alert_id"] = version.rule_id
             if events:
                 event = events[0]
                 item.update(

@@ -51,6 +51,7 @@ async def lifespan(app: FastAPI):
         await evaluator.start()
         app.state.evaluator = evaluator
         alerts = AlertService(app.state.alert_sessions, markets, evaluator)
+        app.state.alerts = alerts
         app.state.chat = ChatAgentService(settings, markets, alerts)
         app.state.evaluator_status = "running" if evaluator.rules else "idle"
 
@@ -199,6 +200,8 @@ async def alerts(
     view: Literal["rules", "history"] = "rules",
     symbol: str | None = None,
     limit: Annotated[int, Query(ge=1, le=100)] = 100,
+    status: Literal["active", "paused"] = "active",
+    offset: Annotated[int, Query(ge=0)] = 0,
 ):
     visible_markets = [markets.resolve(value) for value in UI_MARKETS]
     if symbol is not None:
@@ -207,8 +210,35 @@ async def alerts(
             raise HTTPException(404, "Unknown market")
         visible_markets = [market]
     async with request.app.state.alert_sessions() as session:
-        rows = await AlertReadRepository(session).list_rows(view, visible_markets, limit + 1)
+        rows = await AlertReadRepository(session).list_rows(
+            view, visible_markets, limit + 1, offset=offset, status=status
+        )
+    if view == "rules":
+        for row in rows:
+            row["monitoring"] = (
+                request.app.state.evaluator.monitoring(row["alert_id"]) if status == "active" else "inactive"
+            )
     return {"items": rows[:limit], "has_more": len(rows) > limit}
+
+
+class AlertStatusRequest(BaseModel):
+    status: Literal["active", "paused"]
+
+
+@app.patch("/api/alerts/{alert_id}")
+async def set_alert_status(alert_id: UUID, body: AlertStatusRequest, request: Request):
+    try:
+        return await request.app.state.alerts.set_status(alert_id, body.status)
+    except ValueError as error:
+        raise HTTPException(404, str(error)) from error
+
+
+@app.get("/api/alerts/events/{event_id}")
+async def alert_event(event_id: UUID, request: Request):
+    try:
+        return await request.app.state.alerts.get_event(event_id)
+    except ValueError as error:
+        raise HTTPException(404, str(error)) from error
 
 
 @app.get("/api/market-data")

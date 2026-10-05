@@ -4,6 +4,7 @@ import unittest
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 from uuid import uuid4
 
@@ -240,6 +241,7 @@ class PostgreSQLPersistenceTests(unittest.IsolatedAsyncioTestCase):
         markets = MarketDataService(HyperliquidClient())
         app.state.markets = markets
         app.state.alert_sessions = self.sessions
+        app.state.evaluator = SimpleNamespace(monitoring=lambda _: "evaluator_unavailable")
         try:
             async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
                 response = await client.get("/api/alerts?view=history&limit=1")
@@ -387,6 +389,7 @@ class PostgreSQLPersistenceTests(unittest.IsolatedAsyncioTestCase):
         markets = MarketDataService(HyperliquidClient())
         app.state.markets = markets
         app.state.alert_sessions = self.sessions
+        app.state.evaluator = SimpleNamespace(monitoring=lambda _: "evaluator_unavailable")
         try:
             async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
                 for view in ("rules", "history"):

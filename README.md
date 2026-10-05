@@ -15,7 +15,7 @@ AI assistance will make rules easier to express and events easier to understand.
 ## Core capabilities
 
 - **Custom market conditions.** Combine price, open interest (OI), and funding predicates with explicit windows, thresholds, persistence requirements, and cooldowns.
-- **Visual and natural-language rule creation.** Build conditions in a structured editor or describe them in plain language, then create the rule directly from an explicit request; ask for a preview when you only want a draft.
+- **Agent-driven rule creation.** Describe conditions in plain language, then ask the agent to create the rule; ask for a preview when you only want a draft.
 - **Liquidity-aware alerts.** Evaluate spread, order-book depth, activity, and data freshness alongside the primary condition, with configurable warning and blocking policies.
 - **HIP-3 market context.** Surface session transitions, reference-price divergence, and verified oracle-regime observations for the selected deployer.
 - **Web and Telegram notifications.** Receive event summaries with supporting evidence, quality warnings, and a link to the full breakdown.
@@ -28,7 +28,7 @@ AI assistance will make rules easier to express and events easier to understand.
 
 The agent creates and activates the requested rule, then summarizes its exact conditions. When they are met, the alert includes the observed values, timestamps, and quality checks. If the data are incomplete or liquidity is weak, the configured policy determines whether to warn or block the notification, with the reason visible in the event history.
 
-The first release will focus on a small basket of markets, potentially HYPE and selected instruments from one HIP-3 deployer. Delivery starts with the deterministic engine and visual editor, followed by natural-language assistance. The roadmap prioritizes reliable detection, useful context, and a complete evidence trail.
+The first release will focus on a small basket of markets, potentially HYPE and selected instruments from one HIP-3 deployer. The MVP pairs the deterministic engine with agent-driven rule creation. The roadmap prioritizes reliable detection, useful context, and a complete evidence trail.
 
 ## Run locally
 
@@ -47,9 +47,15 @@ below the order book on mobile. The microphone button records up to 60 seconds, 
 sending it automatically. Prompts, responses, and recordings are processed by OpenRouter and its
 selected model provider, so do not submit secrets or personal information.
 
-The bottom-left alerts panel spans the chart and order book, with **Active alerts** and **Alert history** views. On mobile it sits directly below the chart. It refreshes stored rules/events every five seconds through `GET /api/alerts?view=rules|history`; the optional `symbol` filter uses the same market identities as the chart. Each response contains `items` and `has_more`, with the newest 100 rows by default (`limit=1..100`). The current-market checkbox filters either view; the default shows the picker’s BTC, ETH, SP500, XYZ100, and BRENTOIL markets on the configured network. Tables scroll independently, and failed refreshes label retained rows as last-loaded data.
+The bottom-left alerts panel spans the chart and order book, with **Active**, **Paused**, and **History** views. On mobile it sits directly below the chart. It refreshes every five seconds and pages through 25 rows at a time, with a current-market filter. Pagination appears only when more than one page is available. Alerts are created only through the assistant; the panel provides pause/resume controls and event evidence. Tables scroll independently, and failed refreshes label retained rows as last-loaded data.
 
-Active alerts are configured active rule versions, not a claim that evaluation is healthy. Rules created or paused through the agent are applied immediately; other database changes are reconciled within five seconds. History retains each event's original rule name/version and distinguishes event status, condition truth, and quality. This read-only panel uses the existing local, unauthenticated instance model: it shows instance-wide records, excludes owner IDs and delivery recipients, and provides no rule editing or notification delivery. Per-user access remains part of the authentication roadmap.
+Active alerts are configured active rule versions. A separate monitoring column reports **Monitoring**, **Warming up**, **Stale / interrupted**, or **Evaluator unavailable**, using the deterministic engine's current observations. Agent-created rules and pause/resume actions from the panel or agent apply immediately; other database changes are reconciled within five seconds. History retains each event's original rule name/version and distinguishes event status, condition truth, and quality. **Evidence** opens recorded values, thresholds, observation/evaluation times, OI baselines, and quality reasons. This remains an instance-wide app behind the existing deployment access boundary; owner IDs and delivery recipients are excluded. Notifications remain web-history-only.
+
+The panel reuses the agent's alert service through these endpoints:
+
+- `GET /api/alerts?view=rules|history&status=active|paused&symbol=BTC&limit=25&offset=0`: rows and `has_more`; status filters rules only.
+- `PATCH /api/alerts/{alert_id}`: `{ "status": "active" }` or `{ "status": "paused" }`.
+- `GET /api/alerts/events/{event_id}`: immutable rule definition and recorded event evidence.
 
 Requirements: Python 3.12+, [uv](https://docs.astral.sh/uv/), and Node.js 22.12+.
 
@@ -302,9 +308,9 @@ It loads rules at startup, applies agent changes immediately, and reconciles sto
 Alert evaluation starts automatically with the backend. With no active rules it stays idle.
 Database/rule-loading failures prevent startup. A runtime evaluator failure stops evaluation and
 makes `/health` return 503; restart after resolving the cause. The agent can pause or resume confirmed alerts.
-The former standalone live-evaluator command has been removed; seed and replay commands remain. Notification
-delivery, rule-management HTTP endpoints, authentication, and the visual rule editor remain later
-work; outbox rows are durable but are not sent yet.
+The former standalone live-evaluator command has been removed; seed and replay commands remain. External
+notification delivery, per-user authentication, and editing existing rule conditions remain later work;
+outbox rows are durable but are not sent yet.
 
 Run the isolated PostgreSQL integration test with:
 
@@ -401,7 +407,7 @@ Exchange feeds and external-provider content are data, not instructions. AI is o
 
 | Component | Choice and responsibility |
 | --- | --- |
-| Frontend | Vite, React, TypeScript: typed forms, rules, event history, evidence, and feed health. Live updates come from our backend. |
+| Frontend | Vite, React, TypeScript: rule management, event history, evidence, and feed health. Live updates come from our backend. |
 | HTTP API | Python, FastAPI, Pydantic: authentication, per-user authorization, validated rules, event queries, live updates, and health endpoints. |
 | Ingestion | Python `asyncio`: shared Hyperliquid WebSocket subscriptions and REST reconciliation. |
 | Rule engine | Deterministic Python: in-memory windows, incremental evaluation, quality checks, and runtime checkpoints. |
@@ -504,7 +510,7 @@ Telegram delivery time and exchange publication cadence are external factors. Ke
 | --- | --- | --- |
 | **0 — Feasibility** | Small ingestion prototype/dataset; verify market identity, fields, cadence, freshness, API limits, permissions, and oracle-state observability. | A per-market feasibility matrix and go/no-go decision, including explicit `NO_VERIFICADO` behavior where necessary. |
 | **1 — Deterministic core** | Schema/migrations, subscriptions, samples, windowed evaluation, quality checks, replay, recovery, and auditable events. | Reproducible console alerts with recorded evidence, without AI. |
-| **2 — Product beta** | FastAPI, authentication, React UI, visual editor, event history, Telegram/outbox, live updates, and observability. | A beta for a small user group with traceable alert and delivery behavior. |
+| **2 — Product beta** | FastAPI, authentication, React UI, agent-driven rule creation, event history, Telegram/outbox, live updates, and observability. | A beta for a small user group with traceable alert and delivery behavior. |
 | **3 — AI assistance** | Natural-language rule proposals and controlled explanations; compare providers using the fixed corpus. | User-requested rules and evidence-grounded explanations passing the evaluation set. |
 
 Progress depends on observed feed quality, reproducible false-alarm and outage tests, verified oracle context or an explicit unknown fallback, and demonstrated usefulness of caution-rich alerts compared with conventional alerts.
