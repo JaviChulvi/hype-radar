@@ -325,6 +325,9 @@ TEST_DATABASE_URL=postgresql+psycopg://hype_radar:hype_radar@127.0.0.1:55432/hyp
 
 ## OpenRouter chat
 
+OpenRouter remains the default. An optional [Qwen EC2 test setup](infra/qwen-ec2/README.md)
+uses a private env overlay to try self-hosted vLLM without changing application defaults.
+
 Create an API key in OpenRouter and add it to `backend/.env`; never commit the real value:
 
 ```dotenv
