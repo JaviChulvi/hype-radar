@@ -9,7 +9,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from app.application.agent import ChatAgentService
-from app.application.alerts import AlertService, AlertSpec
+from app.application.alerts import AlertService
 from app.application.chat import ChatMessage, ChatNotConfigured, ChatProviderError, OpenRouterTranscriptionClient
 from app.application.market_data import MarketDataService, MarketUnavailable, SlowConsumer
 from app.config import get_settings
@@ -221,20 +221,8 @@ async def alerts(
     return {"items": rows[:limit], "has_more": len(rows) > limit}
 
 
-class CreateAlertRequest(BaseModel):
-    spec: AlertSpec
-    request_id: UUID
-
-
 class AlertStatusRequest(BaseModel):
     status: Literal["active", "paused"]
-
-
-@app.post("/api/alerts")
-async def create_alert(body: CreateAlertRequest, request: Request):
-    service: AlertService = request.app.state.alerts
-    preview = await service.preview(body.spec, body.request_id)
-    return await service.create(UUID(preview["preview_id"]))
 
 
 @app.patch("/api/alerts/{alert_id}")

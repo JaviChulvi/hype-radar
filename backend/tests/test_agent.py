@@ -439,23 +439,25 @@ class AgentAlertTests(unittest.IsolatedAsyncioTestCase):
         async with self.sessions() as session:
             self.assertEqual((await session.get(AlertRuleModel, self.rule_ids[-1])).status, "draft")
 
-    async def test_alert_management_http_uses_saved_rules_and_event_evidence(self):
+    async def test_agent_created_alerts_support_management_http_and_event_evidence(self):
         app.state.markets = self.markets
         app.state.alert_sessions = self.sessions
         app.state.evaluator = self.worker
         app.state.alerts = self.alerts
         async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
             body = {"request_id": str(uuid4()), "spec": spec().model_dump(mode="json")}
-            created = await client.post("/api/alerts", json=body)
-            self.assertEqual(created.status_code, 200)
-            alert_id = created.json()["alert_id"]
+            self.assertEqual((await client.post("/api/alerts", json=body)).status_code, 405)
+            agent = ChatAgentService(Settings(openrouter_api_key=None), self.markets, self.alerts)
+            create_tool = next(tool for tool in agent.tools(UUID(body["request_id"])) if tool.name == "create_alert")
+            created = json.loads(await create_tool.ainvoke({"spec": body["spec"]}))
+            alert_id = created["alert_id"]
             self.rule_ids.append(UUID(alert_id))
-            self.assertEqual(created.json()["status"], "active")
-            retried = await client.post("/api/alerts", json=body)
-            self.assertEqual(retried.json()["alert_id"], alert_id)
-            body["request_id"] = str(uuid4())
-            second = await client.post("/api/alerts", json=body)
-            self.rule_ids.append(UUID(second.json()["alert_id"]))
+            self.assertEqual(created["status"], "active")
+            retried = json.loads(await create_tool.ainvoke({"spec": body["spec"]}))
+            self.assertEqual(retried["alert_id"], alert_id)
+            create_tool = next(tool for tool in agent.tools(uuid4()) if tool.name == "create_alert")
+            second = json.loads(await create_tool.ainvoke({"spec": body["spec"]}))
+            self.rule_ids.append(UUID(second["alert_id"]))
             page = (await client.get("/api/alerts?limit=1")).json()
             self.assertTrue(page["has_more"])
             self.assertEqual(page["items"][0]["monitoring"], "evaluator_unavailable")
@@ -496,5 +498,3 @@ class AgentAlertTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual((await client.get("/api/alerts?offset=-1")).status_code, 422)
             self.assertEqual((await client.patch(f"/api/alerts/{uuid4()}", json={"status": "paused"})).status_code, 404)
             self.assertEqual((await client.get(f"/api/alerts/events/{uuid4()}")).status_code, 404)
-            body["spec"]["market"] = "HYPE"
-            self.assertEqual((await client.post("/api/alerts", json=body)).status_code, 422)

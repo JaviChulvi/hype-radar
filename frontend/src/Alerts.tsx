@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useRef, useState, type FormEvent } from 'react';
+import { Fragment, useEffect, useRef, useState } from 'react';
 
 type Predicate = {
   id?: string; type: 'threshold' | 'open_interest_change'; metric?: string;
@@ -19,7 +19,6 @@ type AlertEvent = {
   definition: AlertRow;
   evidence: { true_since: string | null; predicates: EvidenceItem[]; checks: EvidenceItem[] } | null;
 };
-const markets = ['BTC', 'ETH', 'SP500', 'XYZ100', 'BRENTOIL'];
 const operators = { gt: '>', gte: '≥', lt: '<', lte: '≤' };
 const labels: Record<string, string> = {
   mark_price: 'Mark price (USD)', oracle_price: 'Oracle price (USD)', mid_price: 'Mid price (USD)',
@@ -43,67 +42,13 @@ function condition(row: Pick<AlertRow, 'predicates' | 'combinator'>) {
   }).join(row.combinator === 'all' ? ' AND ' : ' OR ');
 }
 
-async function writeAlert(url: string, method: string, body: unknown) {
+async function writeAlert(url: string, body: unknown) {
   const response = await fetch(url, {
-    method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+    method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
     signal: AbortSignal.timeout(30_000),
   });
   if (!response.ok) throw new Error('Unable to save. Check your alerts before retrying.');
   return response.json();
-}
-
-function NewAlert({ symbol, onCreated, onCancel }: { symbol: string; onCreated: () => void; onCancel: () => void }) {
-  const requestId = useRef(crypto.randomUUID());
-  const [metric, setMetric] = useState('mark_price');
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState('');
-  async function submit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const fields = new FormData(event.currentTarget);
-    const predicate = {
-      type: metric === 'oi_change' ? 'open_interest_change' : 'threshold',
-      ...(metric === 'oi_change' ? { window_seconds: Number(fields.get('window')) * 60, mode: 'percent' } : { metric }),
-      operator: fields.get('operator'), threshold: fields.get('threshold'),
-    };
-    setSaving(true); setError('');
-    try {
-      await writeAlert('/api/alerts', 'POST', { request_id: requestId.current, spec: {
-        name: fields.get('name'), market: fields.get('market'), predicates: [predicate],
-        persistence_seconds: Number(fields.get('persistence')), cooldown_seconds: Number(fields.get('cooldown')),
-        quality_policy: fields.get('quality_policy'),
-        quality: { max_spread_bps: fields.get('spread') || null },
-      } });
-      onCreated();
-    } catch (failure) { setError(failure instanceof Error ? failure.message : 'Unable to save. Check your alerts before retrying.'); }
-    finally { setSaving(false); }
-  }
-  return <form className="alert-form" onSubmit={submit} aria-label="Create alert">
-    <h3>New alert</h3>
-    <p>One condition. Notifications appear in web history. A level already met can trigger immediately.</p>
-    <fieldset disabled={saving}>
-      <div className="alert-fields">
-        <label>Name<input name="name" required maxLength={200} placeholder="e.g. BTC above my target" autoFocus /></label>
-        <label>Market<select aria-label="Market" name="market" defaultValue={symbol}>{markets.map(value => <option key={value}>{value}</option>)}</select></label>
-        <label>Metric<select aria-label="Metric" value={metric} onChange={event => setMetric(event.target.value)}>
-          {['mark_price', 'oracle_price', 'mid_price', 'bid_price', 'ask_price', 'open_interest', 'funding_rate', 'bid_depth', 'ask_depth'].map(value => <option key={value} value={value}>{label(value)}</option>)}
-          <option value="oi_change">OI change (%)</option>
-        </select></label>
-        <label>Comparison<select aria-label="Comparison" name="operator" defaultValue="gt">{Object.entries(operators).map(([value, text]) => <option key={value} value={value}>{text}</option>)}</select></label>
-        <label>Threshold<input name="threshold" type="number" step="any" required /></label>
-        {metric === 'oi_change' && <label>Window (minutes)<input name="window" type="number" min={1} max={1440} defaultValue={15} required /></label>}
-      </div>
-      {metric === 'funding_rate' && <p>0.0001 means 0.01% per hour.</p>}
-      {metric === 'oi_change' && <p>5 means a 5% change. Monitoring warms up until a baseline is available.</p>}
-      <details><summary>Timing and quality</summary><div className="alert-fields">
-        <label>Hold for (seconds)<input name="persistence" type="number" min={0} max={86400} defaultValue={0} required /></label>
-        <label>Cooldown (seconds)<input name="cooldown" type="number" min={0} max={604800} defaultValue={300} required /></label>
-        <label>Maximum spread (bps, optional)<input name="spread" type="number" min={0} step="any" /></label>
-        <label>Quality policy<select aria-label="Quality policy" name="quality_policy" defaultValue="block"><option value="block">Block poor-quality signals</option><option value="warn">Allow with warnings</option></select></label>
-      </div></details>
-      {error && <p className="alert-failure" role="alert">{error}</p>}
-      <div className="alert-actions"><button className="alert-button alert-primary" type="submit">{saving ? 'Creating…' : 'Create alert'}</button><button className="alert-button" type="button" onClick={onCancel}>Cancel</button></div>
-    </fieldset>
-  </form>;
 }
 
 function EventDetails({ id, onBack }: { id: string; onBack: () => void }) {
@@ -155,7 +100,6 @@ export default function Alerts({ symbol }: { symbol: string }) {
   const [data, setData] = useState<AlertPage | null>(null);
   const [error, setError] = useState(false);
   const [retry, setRetry] = useState(0);
-  const [creating, setCreating] = useState(false);
   const [eventId, setEventId] = useState<string | null>(null);
   const [pending, setPending] = useState<string | null>(null);
   const [message, setMessage] = useState('');
@@ -184,7 +128,7 @@ export default function Alerts({ symbol }: { symbol: string }) {
   async function setStatus(row: AlertRow) {
     setPending(row.alert_id); setMessage('');
     try {
-      await writeAlert(`/api/alerts/${row.alert_id}`, 'PATCH', { status: view === 'active' ? 'paused' : 'active' });
+      await writeAlert(`/api/alerts/${row.alert_id}`, { status: view === 'active' ? 'paused' : 'active' });
       setMessage(`${row.name} ${view === 'active' ? 'paused' : 'resumed'}.`);
       setOffset(0); setRetry(value => value + 1);
     } catch (failure) { setMessage(failure instanceof Error ? failure.message : 'Unable to update the alert.'); }
@@ -193,16 +137,14 @@ export default function Alerts({ symbol }: { symbol: string }) {
   return <section className="alerts-pane" aria-label="Alerts">
     <div className="alerts-heading">
       <div className="alerts-views" role="group" aria-label="Alert view">
-        {(['active', 'paused', 'history'] as const).map(value => <button key={value} aria-pressed={view === value} onClick={() => { setData(null); setOffset(0); setEventId(null); setView(value); setCreating(false); setMessage(''); setRetry(count => count + 1); }}>{value === 'active' ? 'Active' : value === 'paused' ? 'Paused' : 'History'}</button>)}
+        {(['active', 'paused', 'history'] as const).map(value => <button key={value} aria-pressed={view === value} onClick={() => { setData(null); setOffset(0); setEventId(null); setView(value); setMessage(''); setRetry(count => count + 1); }}>{value === 'active' ? 'Active' : value === 'paused' ? 'Paused' : 'History'}</button>)}
       </div>
-      <div className="alert-actions"><label className="alerts-filter"><input type="checkbox" checked={currentMarket} onChange={event => setCurrentMarket(event.target.checked)} />{symbol} only</label>
-        <button className="alert-button" aria-expanded={creating} onClick={() => { setCreating(value => !value); setEventId(null); setMessage(''); }}>New alert</button>
-      </div>
+      <label className="alerts-filter"><input type="checkbox" checked={currentMarket} onChange={event => setCurrentMarket(event.target.checked)} />{symbol} only</label>
     </div>
     {message && <p className="alerts-feedback" role="status">{message}</p>}
     {error && <div className="alerts-error" role="status">{data ? 'Updates interrupted. Showing last loaded alerts.' : 'Unable to load alerts.'}<button onClick={() => setRetry(value => value + 1)}>Retry</button></div>}
     <div className="alerts-scroll" tabIndex={0} role="region" aria-label="Alert workspace">
-      {creating ? <NewAlert symbol={symbol} onCancel={() => setCreating(false)} onCreated={() => { setData(null); setCreating(false); setView('active'); setCurrentMarket(false); setOffset(0); setRetry(value => value + 1); setMessage('Alert created. Check its monitoring status below.'); }} /> : eventId ? <EventDetails id={eventId} onBack={() => setEventId(null)} /> : <>
+      {eventId ? <EventDetails id={eventId} onBack={() => setEventId(null)} /> : <>
         <table className="alerts-table">
           <caption className="sr-only">{view === 'history' ? 'Alert history' : `${view} alert rules`}{filter ? ` for ${filter}` : ' across all markets'}</caption>
           <thead><tr><th scope="col">Market</th><th scope="col">Alert / Condition</th>
@@ -217,9 +159,9 @@ export default function Alerts({ symbol }: { symbol: string }) {
           </tr>)}</tbody>
         </table>
         {!data && !error && <p className="alerts-empty" role="status">Loading alerts…</p>}
-        {data?.items.length === 0 && <div className="alerts-empty" role="status"><p>No {view === 'history' ? 'alert events' : `${view} alerts`}{filter ? ` for ${filter}` : ''}.</p><p>{view === 'active' ? 'Create an alert here or ask the assistant.' : view === 'paused' ? 'Paused rules can be resumed here.' : 'Triggered and blocked events will appear here with their evidence.'}</p></div>}
+        {data?.items.length === 0 && <div className="alerts-empty" role="status"><p>No {view === 'history' ? 'alert events' : `${view} alerts`}{filter ? ` for ${filter}` : ''}.</p><p>{view === 'active' ? 'Ask the assistant to create an alert.' : view === 'paused' ? 'Paused rules can be resumed here.' : 'Triggered and blocked events will appear here with their evidence.'}</p></div>}
       </>}
     </div>
-    {!creating && !eventId && (offset > 0 || data?.has_more) && <div className="alerts-pagination"><button className="alert-button" disabled={offset === 0} onClick={() => setOffset(value => Math.max(0, value - pageSize))}>Previous</button><span>Page {offset / pageSize + 1}</span><button className="alert-button" disabled={!data?.has_more} onClick={() => setOffset(value => value + pageSize)}>Next</button></div>}
+    {!eventId && (offset > 0 || data?.has_more) && <div className="alerts-pagination"><button className="alert-button" disabled={offset === 0} onClick={() => setOffset(value => Math.max(0, value - pageSize))}>Previous</button><span>Page {offset / pageSize + 1}</span><button className="alert-button" disabled={!data?.has_more} onClick={() => setOffset(value => value + pageSize)}>Next</button></div>}
   </section>;
 }
