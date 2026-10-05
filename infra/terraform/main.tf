@@ -20,6 +20,8 @@ resource "aws_lightsail_instance" "app" {
 
   user_data = templatefile("${path.module}/templates/bootstrap.sh.tftpl", {
     bootstrap_user = var.bootstrap_user
+    repository_ref = var.repository_ref
+    repository_url = var.repository_url
   })
 
   dynamic "add_on" {
@@ -33,6 +35,9 @@ resource "aws_lightsail_instance" "app" {
   }
 
   lifecycle {
+    # User data runs only on first boot; template changes are applied to replacement instances.
+    ignore_changes = [user_data]
+
     precondition {
       condition     = startswith(var.availability_zone, var.aws_region)
       error_message = "availability_zone must belong to aws_region."
