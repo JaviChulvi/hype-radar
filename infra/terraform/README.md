@@ -2,7 +2,7 @@
 
 This Terraform root module provisions the small AWS footprint used by the course demo:
 
-- one Ubuntu Lightsail instance bootstrapped with Docker Engine and Docker Compose;
+- one Ubuntu Lightsail instance bootstrapped with Docker Engine, Docker Compose, and the application images;
 - one attached static IPv4 address;
 - a Lightsail firewall exposing HTTP and browser-based SSH;
 - a Lightsail CDN distribution with HTTPS at the edge;
@@ -56,8 +56,13 @@ terraform plan -out=tfplan
 terraform apply tfplan
 ```
 
-Creating the CDN can take several minutes. After the instance is ready, open browser SSH using the
-`browser_ssh_url` output and confirm that bootstrap completed:
+Creating the CDN can take several minutes. During bootstrap, the instance clones `repository_url` at
+`repository_ref`, prepares the production environment file, builds both application images, and
+installs an enabled `hype-radar.service` unit. It deliberately does not place passwords or API keys
+in user data because Terraform state and cloud-init data are not appropriate secret stores.
+
+After the instance is ready, open browser SSH using the `browser_ssh_url` output and confirm that
+bootstrap completed:
 
 ```sh
 sudo cloud-init status --wait
@@ -65,16 +70,19 @@ sudo test -f /opt/hype-radar/.bootstrap-complete
 docker compose version
 ```
 
-Clone the repository into `/opt/hype-radar/app`, create `.env.production` and
-`.secrets/htpasswd`, then start the production Compose stack from the repository root. The `app`
-subdirectory avoids conflicting with the bootstrap completion marker:
+Edit the prepared `/opt/hype-radar/app/.env.production` file and replace every placeholder. Then
+create `/opt/hype-radar/app/.secrets/htpasswd` as documented in the project README. Once both secret
+files are ready, start the preinstalled service:
 
 ```sh
-cd /opt/hype-radar
-git clone https://github.com/JaviChulvi/hype-radar.git app
-cd app
-docker compose --env-file .env.production -f compose.prod.yml up --detach --build
+sudo systemctl start hype-radar.service
+sudo systemctl status hype-radar.service
 ```
+
+The service starts automatically on later boots after both required files exist. For application
+updates, pull the desired Git ref and rebuild with the production Compose command from the project
+README. Terraform ignores user-data changes for an existing instance because bootstrap runs only on
+first boot; updated bootstrap logic applies when a new or replacement instance is created.
 
 Use `terraform output -raw application_url` as `OPENROUTER_SITE_URL`. The CDN forwards HTTP traffic
 to port 80 on the instance; no application container ports other than the Nginx frontend are public.

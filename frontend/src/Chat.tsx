@@ -1,14 +1,24 @@
 import { useEffect, useRef, useState } from 'react';
 import { ArrowDown, ArrowUp, MessageSquare, Plus, RotateCcw, Square } from 'lucide-react';
+import Markdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 
 type Message = { id: string; role: 'user' | 'assistant'; content: string; stopped?: boolean };
+const toolLabels: Record<string, string> = {
+  list_markets: 'Checking supported markets', get_market_snapshot: 'Reading current market data',
+  get_candles: 'Studying price history', get_market_microstructure: 'Checking liquidity and recent trades',
+  get_metric_history: 'Reading historical observations', preview_alert: 'Preparing alert conditions',
+  create_alert: 'Activating your alert', list_alerts: 'Checking your alerts',
+  set_alert_status: 'Updating your alert', get_alert_event: 'Reading alert evidence',
+};
 type Phase = 'idle' | 'thinking' | 'streaming';
-type RetryState = { prompt: string; message: string; responseId?: string; isError: boolean };
+type RetryState = { prompt: string; message: string; responseId?: string; isError: boolean; requestId: string };
 
 export default function Chat() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [draft, setDraft] = useState('');
   const [phase, setPhase] = useState<Phase>('idle');
+  const [toolStatus, setToolStatus] = useState('');
   const [retryState, setRetryState] = useState<RetryState | null>(null);
   const [recording, setRecording] = useState(false);
   const [requestingMicrophone, setRequestingMicrophone] = useState(false);
@@ -52,17 +62,18 @@ export default function Chat() {
     }
   }, [draft]);
 
-  async function send(prompt = draft.trim(), retry = false) {
+  async function send(prompt = draft.trim(), retry = false, requestId: string = crypto.randomUUID()) {
     if (!prompt || activeRequest.current || recording || requestingMicrophone || transcribing) return;
     const controller = new AbortController();
     activeRequest.current = controller;
     const id = crypto.randomUUID();
     let content = '';
+    let completed = false;
     let timedOut = false;
     const timeout = setTimeout(() => { timedOut = true; controller.abort(); }, 90_000);
     const history = messages
-      .filter(message => !message.stopped)
-      .map(({ role, content }) => ({ role, content }));
+      .filter(message => !message.stopped && message.content.trim())
+      .map(({ role, content }) => ({ role, content: content.slice(-4000) }));
     if (retry && history.at(-1)?.role === 'user' && history.at(-1)?.content === prompt) history.pop();
     const boundedHistory: typeof history = [];
     let contextLength = prompt.length;
@@ -75,6 +86,7 @@ export default function Chat() {
     setAwayFromBottom(false);
     setRetryState(null);
     setPhase('thinking');
+    setToolStatus('');
     setAnnouncement('Thinking');
     if (!retry) {
       setDraft('');
@@ -84,34 +96,48 @@ export default function Chat() {
     try {
       const response = await fetch('/api/chat', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: prompt, history: boundedHistory }), signal: controller.signal,
+        body: JSON.stringify({ message: prompt, history: boundedHistory, request_id: requestId }), signal: controller.signal,
       });
       if (!response.ok || !response.body) throw new Error('Reply unavailable');
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
+      let buffer = '';
+      function updateReply() {
+        setPhase('streaming');
+        setMessages(previous => {
+          const reply = { id, role: 'assistant' as const, content };
+          return previous.some(message => message.id === id)
+            ? previous.map(message => message.id === id ? reply : message)
+            : [...previous, reply];
+        });
+      }
       while (true) {
         const { value, done } = await reader.read();
-        content += decoder.decode(value, { stream: !done });
-        if (content) {
-          setPhase('streaming');
-          setMessages(previous => {
-            const reply = { id, role: 'assistant' as const, content };
-            return previous.some(message => message.id === id)
-              ? previous.map(message => message.id === id ? reply : message)
-              : [...previous, reply];
-          });
+        buffer += decoder.decode(value, { stream: !done });
+        const frames = buffer.split('\n\n');
+        buffer = frames.pop()!;
+        for (const frame of frames) {
+          const data = frame.split('\n').filter(line => line.startsWith('data:'))
+            .map(line => line.slice(5).trim()).join('\n');
+          if (!data) continue;
+          const event = JSON.parse(data);
+          if (event.type === 'text') { content += event.text; updateReply(); }
+          else if (event.type === 'tool_start') setToolStatus(toolLabels[event.name] ?? 'Working');
+          else if (event.type === 'tool_end') setToolStatus('');
+          else if (event.type === 'error') throw new Error(event.message);
+          else if (event.type === 'done') completed = true;
         }
         if (done) break;
       }
-      if (!content.trim()) throw new Error('Empty reply');
+      if (!completed || !content.trim()) throw new Error('Incomplete reply');
       setAnnouncement(`Hype Radar: ${content}`);
     } catch {
       if (!controller.signal.aborted || timedOut) {
-        // Replace a failed partial reply on retry, without duplicating the user's turn.
-        setMessages(previous => previous.filter(message => message.id !== id));
+        // Keep the partial reply visible; stopping the stream does not undo a committed alert.
+        setMessages(previous => previous.map(message => message.id === id ? { ...message, stopped: true } : message));
         setRetryState({
-          prompt,
-          message: timedOut ? 'The reply took too long. Try again.' : 'Couldn’t get a reply. Please try again.',
+          prompt, requestId,
+          message: timedOut ? 'The reply took too long. Check alerts before retrying.' : 'Couldn’t finish the reply. Check alerts before retrying.',
           isError: true,
         });
         setAnnouncement('Reply failed');
@@ -119,13 +145,14 @@ export default function Chat() {
         setMessages(previous => [...previous.filter(message => message.id !== id), {
           id, role: 'assistant', content: content || 'Response stopped.', stopped: true,
         }]);
-        setRetryState({ prompt, message: 'Response stopped.', responseId: id, isError: false });
+        setRetryState({ prompt, requestId, message: 'Response stopped.', responseId: id, isError: false });
         setAnnouncement('Response stopped');
       }
     } finally {
       clearTimeout(timeout);
       activeRequest.current = null;
       setPhase('idle');
+      setToolStatus('');
     }
   }
 
@@ -227,7 +254,7 @@ export default function Chat() {
   return (
     <aside className="chat-pane" aria-label="Hype Radar chat">
       <div className="chat-heading">
-        <h2><MessageSquare size={16} aria-hidden="true" /> Assistant <span className="chat-demo">OpenRouter</span></h2>
+        <h2><MessageSquare size={16} aria-hidden="true" /> Assistant</h2>
         <button type="button" className="chat-icon-button" aria-label="New chat" title="New chat"
           disabled={busy || messages.length === 0} onClick={() => {
             setMessages([]); setRetryState(null); setVoiceError(null); setAnnouncement('New chat');
@@ -246,7 +273,11 @@ export default function Chat() {
             <h3>What’s on your radar?</h3>
             <p>Discuss markets and turn ideas into precise alert conditions.</p>
             <div className="chat-suggestions">
-              {['What should I watch in BTC?', 'Help me think through an alert'].map(prompt => (
+              {[
+                'Compare BTC and ETH: 24h moves, funding and liquidity.',
+                'Assess a $100k BTC buy using the order book and recent trades.',
+                'Create an ETH alert: price above $4,000 AND OI up at least 5% in 15 minutes.',
+              ].map(prompt => (
                 <button type="button" key={prompt} onClick={() => void send(prompt)}>
                   {prompt}<ArrowUp size={14} aria-hidden="true" />
                 </button>
@@ -258,12 +289,19 @@ export default function Chat() {
             <span className={message.role === 'user' ? 'sr-only' : 'chat-author'}>
               {message.role === 'user' ? 'You' : 'Hype Radar'}
             </span>
-            <p className={replyBusy && message.id === messages.at(-1)?.id && message.role === 'assistant' ? 'chat-streaming' : ''}>{message.content}</p>
+            {message.role === 'assistant' ? (
+              <div className={`chat-markdown${replyBusy && message.id === messages.at(-1)?.id ? ' chat-streaming' : ''}`}>
+                <Markdown remarkPlugins={[remarkGfm]} skipHtml components={{
+                  a: ({ children, href }) => <a href={href} target="_blank" rel="noopener noreferrer">{children}</a>,
+                  table: ({ children }) => <div className="chat-table-scroll" role="region" aria-label="Response table" tabIndex={0}><table>{children}</table></div>,
+                }}>{message.content}</Markdown>
+              </div>
+            ) : <p>{message.content}</p>}
             {message.stopped && message.content !== 'Response stopped.' && <span className="chat-stopped">Response stopped</span>}
           </div>
         ))}
-        {phase === 'thinking' && <div className="chat-thinking" aria-hidden="true">
-          <span className="chat-thinking-dots"><i /><i /><i /></span><span>Thinking</span>
+        {(phase === 'thinking' || toolStatus) && <div className="chat-thinking" aria-hidden="true">
+          <span className="chat-thinking-dots"><i /><i /><i /></span><span>{toolStatus || 'Thinking'}</span>
         </div>}
         {retryState && <div className={retryState.isError ? 'chat-error' : 'chat-retry'} role={retryState.isError ? 'alert' : 'status'}>
           <p>{retryState.message}</p>
@@ -271,7 +309,7 @@ export default function Chat() {
             if (retryState.responseId) {
               setMessages(previous => previous.filter(message => message.id !== retryState.responseId));
             }
-            void send(retryState.prompt, true);
+            void send(retryState.prompt, true, retryState.requestId);
           }}><RotateCcw size={14} aria-hidden="true" /> Retry</button>
         </div>}
         {voiceError && <div className="chat-error" role="alert"><p>{voiceError}</p></div>}
@@ -289,9 +327,7 @@ export default function Chat() {
                 event.preventDefault(); void send();
               }
             }} />
-          <div className="chat-composer-actions">
-            <span>{requestingMicrophone ? 'Opening microphone…' : recording ? 'Recording…' : transcribing ? 'Transcribing…' : 'AI response'}</span>
-            <div className="chat-action-buttons">
+          <div className="chat-action-buttons">
               <button type="button" className={`chat-mic${recording ? ' recording' : ''}`}
                 disabled={replyBusy || requestingMicrophone || transcribing} aria-pressed={recording}
                 aria-label={recording ? 'Stop recording' : 'Start voice input'}
@@ -308,9 +344,11 @@ export default function Chat() {
                 : <button type="submit" className="chat-send"
                   disabled={!draft.trim() || recording || requestingMicrophone || transcribing}
                   aria-label="Send message" title="Send message"><ArrowUp size={18} aria-hidden="true" /></button>}
-            </div>
           </div>
         </form>
+        {(requestingMicrophone || recording || transcribing) && <p className="chat-voice-status">
+          {requestingMicrophone ? 'Opening microphone…' : recording ? 'Recording…' : 'Transcribing…'}
+        </p>}
         <p className="chat-disclaimer">AI can make mistakes · Not financial advice</p>
       </div>
       <div className="sr-only" role="status" aria-live="polite" aria-atomic="true">{announcement}</div>

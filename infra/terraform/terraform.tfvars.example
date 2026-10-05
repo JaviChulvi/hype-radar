@@ -8,5 +8,7 @@ budget_alert_email = "team@example.com"
 # aws_region             = "eu-west-1"
 # availability_zone      = "eu-west-1a"
 # key_pair_name          = "my-lightsail-key"
+# repository_url         = "https://github.com/JaviChulvi/hype-radar.git"
+# repository_ref         = "main"
 # enable_auto_snapshots  = false
 # budget_limit_usd       = 15

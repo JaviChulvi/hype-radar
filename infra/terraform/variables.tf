@@ -63,6 +63,28 @@ variable "bootstrap_user" {
   default     = "ubuntu"
 }
 
+variable "repository_url" {
+  description = "Public HTTPS Git repository cloned during instance bootstrap."
+  type        = string
+  default     = "https://github.com/JaviChulvi/hype-radar.git"
+
+  validation {
+    condition     = startswith(var.repository_url, "https://")
+    error_message = "repository_url must use HTTPS so bootstrap can clone it non-interactively."
+  }
+}
+
+variable "repository_ref" {
+  description = "Git branch or tag cloned during instance bootstrap."
+  type        = string
+  default     = "main"
+
+  validation {
+    condition     = can(regex("^[A-Za-z0-9._/-]+$", var.repository_ref))
+    error_message = "repository_ref contains unsupported characters."
+  }
+}
+
 variable "ssh_allowed_ipv4_cidrs" {
   description = "Additional IPv4 CIDRs allowed to connect over SSH. Browser-based Lightsail SSH is always allowed."
   type        = set(string)

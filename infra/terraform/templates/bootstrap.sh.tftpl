@@ -1,7 +1,8 @@
-#!/usr/bin/env bash
-set -Eeuo pipefail
+#!/bin/sh
+set -eu
 
-exec > >(tee /var/log/hype-radar-bootstrap.log | logger -t hype-radar-bootstrap -s 2>/dev/console) 2>&1
+# Lightsail prepends its initialization commands, so this script must remain POSIX sh compatible.
+exec >> /var/log/hype-radar-bootstrap.log 2>&1
 
 export DEBIAN_FRONTEND=noninteractive
 
@@ -36,6 +37,47 @@ fi
 
 printf '%s\n' 'vm.swappiness=10' > /etc/sysctl.d/99-hype-radar.conf
 sysctl --system
+
+app_dir=/opt/hype-radar/app
+if [ ! -d "$app_dir/.git" ]; then
+  git clone --branch "${repository_ref}" --single-branch "${repository_url}" "$app_dir"
+fi
+
+install -d -m 0755 -o "${bootstrap_user}" -g "${bootstrap_user}" "$app_dir/.secrets"
+if [ ! -f "$app_dir/.env.production" ]; then
+  cp "$app_dir/.env.production.example" "$app_dir/.env.production"
+  chmod 600 "$app_dir/.env.production"
+fi
+chown -R "${bootstrap_user}:${bootstrap_user}" "$app_dir"
+
+# Build images without placing application secrets in Terraform state or cloud-init data.
+docker build --tag hype-radar-backend:latest "$app_dir/backend"
+docker build --tag hype-radar-frontend:latest "$app_dir/frontend"
+
+cat > /etc/systemd/system/hype-radar.service <<'EOF'
+[Unit]
+Description=Hype Radar production stack
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+ConditionPathExists=/opt/hype-radar/app/.env.production
+ConditionPathExists=/opt/hype-radar/app/.secrets/htpasswd
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=/opt/hype-radar/app
+ExecStart=/usr/bin/docker compose --env-file .env.production -f compose.prod.yml up --detach
+ExecStop=/usr/bin/docker compose --env-file .env.production -f compose.prod.yml down
+TimeoutStartSec=0
+TimeoutStopSec=120
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+systemctl daemon-reload
+systemctl enable hype-radar.service
 
 touch /opt/hype-radar/.bootstrap-complete
 chown "${bootstrap_user}:${bootstrap_user}" /opt/hype-radar/.bootstrap-complete
