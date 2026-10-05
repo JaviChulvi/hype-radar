@@ -6,6 +6,7 @@ from time import monotonic
 
 from app.application import EvaluationService
 from app.application.market_data import MarketDataService
+from app.domain.evaluations import ConditionState
 from app.domain.rules import OpenInterestChangePredicate, RuleVersion
 from app.engine import ObservationWindowStore, RuleEngine
 from app.persistence import SqlAlchemyUnitOfWork, create_engine, create_session_factory
@@ -47,7 +48,20 @@ class EvaluationWorker:
         if rule is None:
             return "inactive"
         task = self._feeds.get(rule.market)
-        return "monitoring" if task is not None and not task.done() else "evaluator_unavailable"
+        if task is None or task.done():
+            return "evaluator_unavailable"
+        result = self._engine.evaluate(rule, evaluated_at=datetime.now(UTC)).result
+        if any(item.reason_code and item.reason_code.startswith("STALE_") for item in result.predicates) or any(
+            item.reason_code == "GAP"
+            or (item.check == "freshness" and item.status == "block" and item.evidence.get("age_seconds") is not None)
+            for item in result.checks
+        ):
+            return "stale"
+        if result.condition is ConditionState.UNKNOWN or any(
+            item.check == "freshness" and item.status == "block" for item in result.checks
+        ):
+            return "warming_up"
+        return "monitoring"
 
     async def reload_rules(self) -> None:
         async with self._rules_lock:

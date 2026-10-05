@@ -47,9 +47,16 @@ below the order book on mobile. The microphone button records up to 60 seconds, 
 sending it automatically. Prompts, responses, and recordings are processed by OpenRouter and its
 selected model provider, so do not submit secrets or personal information.
 
-The bottom-left alerts panel spans the chart and order book, with **Active alerts** and **Alert history** views. On mobile it sits directly below the chart. It refreshes stored rules/events every five seconds through `GET /api/alerts?view=rules|history`; the optional `symbol` filter uses the same market identities as the chart. Each response contains `items` and `has_more`, with the newest 100 rows by default (`limit=1..100`). The current-market checkbox filters either view; the default shows the picker’s BTC, ETH, SP500, XYZ100, and BRENTOIL markets on the configured network. Tables scroll independently, and failed refreshes label retained rows as last-loaded data.
+The bottom-left alerts panel spans the chart and order book, with **Active**, **Paused**, and **History** views. On mobile it sits directly below the chart. It refreshes every five seconds and pages through 25 rows at a time, with a current-market filter. **New alert** opens a small form for one metric threshold or percentage OI change; timing and spread-quality options are optional. Rules can be paused and resumed directly from their tables. For combined conditions, use the assistant. Tables scroll independently, and failed refreshes label retained rows as last-loaded data.
 
-Active alerts are configured active rule versions, not a claim that evaluation is healthy. Rules created or paused through the agent are applied immediately; other database changes are reconciled within five seconds. History retains each event's original rule name/version and distinguishes event status, condition truth, and quality. This read-only panel uses the existing local, unauthenticated instance model: it shows instance-wide records, excludes owner IDs and delivery recipients, and provides no rule editing or notification delivery. Per-user access remains part of the authentication roadmap.
+Active alerts are configured active rule versions. A separate monitoring column reports **Monitoring**, **Warming up**, **Stale / interrupted**, or **Evaluator unavailable**, using the deterministic engine's current observations. Rules created, paused, or resumed through the panel or agent apply immediately; other database changes are reconciled within five seconds. History retains each event's original rule name/version and distinguishes event status, condition truth, and quality. **Evidence** opens recorded values, thresholds, observation/evaluation times, OI baselines, and quality reasons. This remains an instance-wide app behind the existing deployment access boundary; owner IDs and delivery recipients are excluded. Notifications remain web-history-only.
+
+The panel reuses the agent's alert service through these endpoints:
+
+- `GET /api/alerts?view=rules|history&status=active|paused&symbol=BTC&limit=25&offset=0`: rows and `has_more`; status filters rules only.
+- `POST /api/alerts`: `{ "request_id": "UUID", "spec": { ... } }`; validates and activates the rule, preserving request/condition retry identity.
+- `PATCH /api/alerts/{alert_id}`: `{ "status": "active" }` or `{ "status": "paused" }`.
+- `GET /api/alerts/events/{event_id}`: immutable rule definition and recorded event evidence.
 
 Requirements: Python 3.12+, [uv](https://docs.astral.sh/uv/), and Node.js 22.12+.
 
@@ -302,9 +309,9 @@ It loads rules at startup, applies agent changes immediately, and reconciles sto
 Alert evaluation starts automatically with the backend. With no active rules it stays idle.
 Database/rule-loading failures prevent startup. A runtime evaluator failure stops evaluation and
 makes `/health` return 503; restart after resolving the cause. The agent can pause or resume confirmed alerts.
-The former standalone live-evaluator command has been removed; seed and replay commands remain. Notification
-delivery, rule-management HTTP endpoints, authentication, and the visual rule editor remain later
-work; outbox rows are durable but are not sent yet.
+The former standalone live-evaluator command has been removed; seed and replay commands remain. External
+notification delivery, per-user authentication, and editing existing rule conditions remain later work;
+outbox rows are durable but are not sent yet.
 
 Run the isolated PostgreSQL integration test with:
 
