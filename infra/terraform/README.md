@@ -74,7 +74,7 @@ docker compose version
 ```
 
 Edit the prepared `/opt/hype-radar/app/.env.production` file and replace every placeholder. Then
-create `/opt/hype-radar/app/.secrets/htpasswd` as documented in the project README. Once both secret
+create `/opt/hype-radar/app/.secrets/htpasswd` as documented in the [production deployment guide](../../docs/deployment.md). Once both secret
 files are ready, start the preinstalled service:
 
 ```sh
