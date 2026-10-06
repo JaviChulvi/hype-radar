@@ -7,6 +7,7 @@ from decimal import Decimal
 from unittest.mock import AsyncMock, patch
 from uuid import UUID, uuid4
 
+import httpx
 from langchain_core.language_models.fake_chat_models import FakeMessagesListChatModel
 from langchain_core.messages import AIMessage
 from pydantic import ValidationError
@@ -23,6 +24,7 @@ from app.persistence import create_engine, create_session_factory
 from app.persistence.models import AlertEventModel, AlertRuleModel, AlertRuleVersionModel, RuleRuntimeModel
 from app.workers.evaluator import EvaluationWorker
 from feed import ContextFeed, SharedFeed
+from main import app
 
 
 class ToolModel(FakeMessagesListChatModel):
@@ -178,7 +180,7 @@ class AgentAlertTests(unittest.IsolatedAsyncioTestCase):
                 preview_id = UUID((await self.preview())["preview_id"])
                 rule_id = self.rule_ids[-1]
                 result = await self.alerts.create(preview_id)
-                self.assertEqual(result["monitoring"], "monitoring")
+                self.assertIn(result["monitoring"], {"warming_up", "monitoring"})
                 async with asyncio.timeout(3):
                     while True:
                         async with self.sessions() as session:
@@ -190,6 +192,7 @@ class AgentAlertTests(unittest.IsolatedAsyncioTestCase):
                             if event:
                                 break
                         await asyncio.sleep(0.01)
+                self.assertEqual(self.worker.monitoring(rule_id), "monitoring")
                 history = await self.alerts.list_alerts(view="history")
                 self.assertIn(str(event.id), [item["event_id"] for item in history["items"]])
                 past_history = await self.alerts.list_alerts(view="history", offset=len(history["items"]))
@@ -435,3 +438,63 @@ class AgentAlertTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["data_warning"], "offline")
         async with self.sessions() as session:
             self.assertEqual((await session.get(AlertRuleModel, self.rule_ids[-1])).status, "draft")
+
+    async def test_agent_created_alerts_support_management_http_and_event_evidence(self):
+        app.state.markets = self.markets
+        app.state.alert_sessions = self.sessions
+        app.state.evaluator = self.worker
+        app.state.alerts = self.alerts
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+            body = {"request_id": str(uuid4()), "spec": spec().model_dump(mode="json")}
+            self.assertEqual((await client.post("/api/alerts", json=body)).status_code, 405)
+            agent = ChatAgentService(Settings(openrouter_api_key=None), self.markets, self.alerts)
+            create_tool = next(tool for tool in agent.tools(UUID(body["request_id"])) if tool.name == "create_alert")
+            created = json.loads(await create_tool.ainvoke({"spec": body["spec"]}))
+            alert_id = created["alert_id"]
+            self.rule_ids.append(UUID(alert_id))
+            self.assertEqual(created["status"], "active")
+            retried = json.loads(await create_tool.ainvoke({"spec": body["spec"]}))
+            self.assertEqual(retried["alert_id"], alert_id)
+            create_tool = next(tool for tool in agent.tools(uuid4()) if tool.name == "create_alert")
+            second = json.loads(await create_tool.ainvoke({"spec": body["spec"]}))
+            self.rule_ids.append(UUID(second["alert_id"]))
+            page = (await client.get("/api/alerts?limit=1")).json()
+            self.assertTrue(page["has_more"])
+            self.assertEqual(page["items"][0]["monitoring"], "evaluator_unavailable")
+            next_page = (await client.get("/api/alerts?limit=1&offset=1")).json()
+            self.assertFalse(next_page["has_more"])
+            self.assertNotEqual(page["items"][0]["alert_id"], next_page["items"][0]["alert_id"])
+
+            now = datetime.now(UTC)
+            processed = await self.worker._service.process(
+                MarketObservation(
+                    self.markets.resolve("BTC"),
+                    "fixture",
+                    "context",
+                    now,
+                    now,
+                    {Metric.MARK_PRICE: Decimal("101")},
+                ),
+                self.worker.rules,
+            )
+            event_id = processed.outcomes[0].event.id
+            detail = (await client.get(f"/api/alerts/events/{event_id}")).json()
+            self.assertEqual(detail["status"], "confirmed")
+            self.assertEqual(detail["evidence"]["predicates"][0]["evidence"]["value"], "101")
+            self.assertNotIn("owner_id", detail["definition"])
+            self.assertNotIn("deliveries", detail["definition"])
+
+            self.assertEqual(
+                (await client.patch(f"/api/alerts/{alert_id}", json={"status": "paused"})).status_code, 200
+            )
+            active = (await client.get("/api/alerts")).json()["items"]
+            self.assertNotIn(alert_id, [row["alert_id"] for row in active])
+            paused = (await client.get("/api/alerts?status=paused")).json()["items"]
+            self.assertEqual([row["alert_id"] for row in paused], [alert_id])
+            self.assertEqual(paused[0]["monitoring"], "inactive")
+            self.assertEqual(
+                (await client.patch(f"/api/alerts/{alert_id}", json={"status": "active"})).status_code, 200
+            )
+            self.assertEqual((await client.get("/api/alerts?offset=-1")).status_code, 422)
+            self.assertEqual((await client.patch(f"/api/alerts/{uuid4()}", json={"status": "paused"})).status_code, 404)
+            self.assertEqual((await client.get(f"/api/alerts/events/{uuid4()}")).status_code, 404)
