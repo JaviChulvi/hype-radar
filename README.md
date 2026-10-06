@@ -145,9 +145,12 @@ docker compose --env-file .env.production -f compose.prod.yml ps --all
 The stack starts PostgreSQL first, waits until it is healthy, runs `alembic upgrade head` once, then
 starts the backend and finally Nginx. Only the configured frontend port is published on the host;
 PostgreSQL and FastAPI remain reachable only through their Docker networks. Container logs are
-rotated to prevent unbounded disk usage. Nginx protects the complete application with Basic Auth.
-General API traffic is limited to 30 requests per second per source IP. Chat and transcription are
-additionally limited to 6 requests per minute per Basic Auth credential, with a short burst allowance.
+rotated to prevent unbounded disk usage. Nginx protects the frontend and every `/api/` route with
+Basic Auth. The `/ws/` routes stream public, read-only market data without a Basic Auth challenge so
+browsers do not display a second login dialog during the WebSocket handshake; they are limited to
+four simultaneous connections per source IP. General API traffic is limited to 30 requests per
+second per source IP. Chat and transcription are additionally limited to 6 requests per minute per
+Basic Auth credential, with a short burst allowance.
 
 Inspect the stack or stop it without deleting PostgreSQL data:
 
