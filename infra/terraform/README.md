@@ -20,7 +20,10 @@ The budget sends alerts but does not cap spending or stop resources.
 
 The distribution does not cache the application by default. It forwards `Authorization`, `Host`,
 `Origin`, and all query strings so that Basic Auth, chat requests, audio transcription, and
-WebSockets continue to work. Only Vite's content-hashed `/assets/*` files are cached.
+WebSockets continue to work. Only Vite's content-hashed `/assets/*` files are cached. Nginx does not
+issue a Basic Auth challenge for `/ws/`: those routes only stream public, read-only market data and
+are connection-limited per source IP, avoiding a second browser login dialog during the WebSocket
+handshake.
 
 TLS terminates at the Lightsail distribution. The distribution currently connects to the instance
 over HTTP because the production Nginx image does not yet expose origin TLS. Port 80 therefore has
