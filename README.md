@@ -1,99 +1,92 @@
 # Hype Radar
 
-**Market alerts with evidence, liquidity context, and a devil's advocate.**
+**Español** / [English](README.en.md)
 
-Describe a market condition by voice or text, monitor it with a deterministic engine, and inspect the evidence behind each event. Hype Radar brings price, open interest, funding, and order-book conditions into one workspace for Hyperliquid perpetuals and selected HIP-3 markets.
+**Alertas de mercado con evidencia, contexto de liquidez y un abogado del diablo.**
 
-[![Hype Radar pitch cover: market alerts with evidence, in the platform's charcoal, gold, and green palette](docs/images/pitch-cover.png)](pitch-deck/Hype-Radar-Pitch.pdf)
+Describe una condición de mercado por voz o texto, síguela con un motor determinista y revisa la evidencia de cada evento. Hype Radar reúne precio, interés abierto, financiación y condiciones del libro de órdenes en una aplicación para perpetuos de Hyperliquid y determinados mercados HIP-3.
 
-Explore the [current MVP](#current-mvp), [multimodal workflow](#multimodal-workflow), and [local setup](#run-locally). For deployment, see [production images](#production-images) and [AWS demo infrastructure](#aws-demo-infrastructure).
+[![Portada de Hype Radar: alertas de mercado con evidencia, con los colores carbón, oro y verde de la plataforma](docs/images/pitch-cover.png)](pitch-deck/Hype-Radar-Pitch.pdf)
+
+Consulta el [MVP actual](#mvp-actual), el [flujo multimodal](#flujo-multimodal) y la [ejecución local](#ejecución-local). Para el despliegue, revisa las [imágenes de producción](#imágenes-de-producción) y la [infraestructura de demostración en AWS](#infraestructura-de-demostración-en-aws).
 
 ## Pitch deck
 
-The presentation is in Spanish and follows the FinTech multimodal workshop brief.
+La presentación está en español y sigue el enunciado del taller de FinTech multimodal.
 
-| Format | Use |
+| Formato | Uso |
 | --- | --- |
-| [PowerPoint](pitch-deck/Hype-Radar-Pitch.pptx) | Editable slides, speaker notes, and animations. Open in Slide Show mode for staged reveals. |
-| [PDF](pitch-deck/Hype-Radar-Pitch.pdf) | Twelve complete slides, showing the final state of each animation. |
+| [PowerPoint](pitch-deck/Hype-Radar-Pitch.pptx) | Diapositivas editables, notas del presentador y animaciones. Abre el modo Presentación para ver las apariciones por etapas. |
+| [PDF](pitch-deck/Hype-Radar-Pitch.pdf) | Doce diapositivas completas, con el estado final de cada animación. |
 
-## Current MVP
+## MVP actual
 
-- **Live market workspace.** Candles, order book, recent trades, and 24-hour mark-price changes for BTC, ETH, SP500, XYZ100, and BRENTOIL.
-- **Voice and text interaction.** Record a short request, review its transcription, then send it to the assistant. The transcript is never sent automatically.
-- **Agent-driven rules.** Ten typed tools query shared market data, create or preview alerts, manage their status, and retrieve recorded event evidence.
-- **Deterministic evaluation.** Combine metric thresholds and OI changes with explicit windows, persistence, cooldowns, and quality policies.
-- **Liquidity and data checks.** Evaluate spread, depth, freshness, and feed integrity separately from the rule's condition. Missing required data cannot confirm a signal.
-- **Web history and evidence.** Inspect the original rule version, observed values, timestamps, and quality reasons. Pause or resume rules from the alerts panel or assistant.
+- **Datos de mercado en tiempo real.** Velas, libro de órdenes, operaciones recientes y variación del precio de marca en 24 horas para BTC, ETH, SP500, XYZ100 y BRENTOIL.
+- **Interacción por voz y texto.** Graba una petición breve, revisa su transcripción y envíala al asistente. La transcripción nunca se envía automáticamente.
+- **Reglas creadas por el agente.** Diez herramientas tipadas consultan los datos compartidos, crean alertas o borradores, gestionan su estado y recuperan la evidencia de los eventos.
+- **Evaluación determinista.** Combina umbrales de métricas y cambios de interés abierto con ventanas explícitas, persistencia, periodos de espera entre eventos y políticas de calidad.
+- **Comprobaciones de liquidez y datos.** Evalúa diferencial, profundidad, antigüedad e integridad de los datos por separado de la condición de la regla. La ausencia de datos obligatorios impide confirmar una señal.
+- **Historial web y evidencia.** Revisa la versión original de la regla, los valores observados, las marcas temporales y los motivos de calidad. Pausa o reanuda reglas desde el panel de alertas o el asistente.
 
-The MVP runs as a shared instance. External notification delivery and per-user accounts remain roadmap work. It does not place trades or require trading credentials. SP500, XYZ100, and BRENTOIL represent Hyperliquid perpetuals, not official underlying-market quotations.
+El MVP funciona como una instancia compartida. La entrega externa de notificaciones y las cuentas por usuario forman parte del plan de desarrollo. No ejecuta operaciones ni requiere credenciales de trading. SP500, XYZ100 y BRENTOIL representan perpetuos de Hyperliquid, no cotizaciones oficiales de los mercados subyacentes.
 
-### Example workflow
+### Ejemplo de uso
 
-> Create an alert for BTC when open interest rises 5% over 15 minutes. Block the event if the spread exceeds 10 basis points.
+> Crea una alerta para BTC cuando el interés abierto suba un 5 % en 15 minutos. Bloquea el evento si el diferencial supera 10 puntos básicos.
 
-1. Type the request, or record it and review the returned transcript before sending.
-2. The agent creates the requested rule and reports its exact conditions. Ask for a preview to produce an inactive draft instead.
-3. Follow the rule's monitoring state. OI conditions may need to warm up while the required observations accumulate.
-4. Inspect events in web history. Condition truth and data quality have separate results, so a true condition can still produce a blocked event.
+1. Escribe la petición o grábala y revisa la transcripción antes de enviarla.
+2. El agente crea la regla solicitada e indica sus condiciones exactas. Pide una vista previa para obtener un borrador inactivo.
+3. Sigue el estado de monitorización. Las condiciones de interés abierto pueden necesitar un periodo de calentamiento para reunir las observaciones requeridas.
+4. Consulta los eventos en el historial web. La condición y la calidad de los datos tienen resultados separados: una condición verdadera puede producir un evento bloqueado.
 
-## Multimodal workflow
+## Flujo multimodal
 
-The default configuration uses `openai/whisper-1` for transcription and `deepseek/deepseek-v4-flash` for the language agent through OpenRouter. Both models are configurable. LangChain coordinates the agent's tools with the application's existing market and alert services.
+La configuración predeterminada utiliza `openai/whisper-1` para la transcripción y `deepseek/deepseek-v4-flash` para el agente de lenguaje a través de OpenRouter. Ambos modelos son configurables. LangChain coordina las herramientas del agente con los servicios de mercado y alertas de la aplicación.
 
 ```mermaid
 flowchart TD
-    VOICE[Voice recording] --> STT[Transcription model]
-    STT --> REVIEW[Transcript reviewed by user]
-    REVIEW --> AGENT[Language agent and typed tools]
-    TEXT[Typed request] --> AGENT
-    HYPERLIQUID[Hyperliquid WebSocket and REST] --> DATA[Shared market data]
+    VOICE[Grabación de voz] --> STT[Modelo de transcripción]
+    STT --> REVIEW[Transcripción revisada por el usuario]
+    REVIEW --> AGENT[Agente de lenguaje y herramientas tipadas]
+    TEXT[Petición escrita] --> AGENT
+    HYPERLIQUID[WebSocket y REST de Hyperliquid] --> DATA[Datos de mercado compartidos]
     DATA --> AGENT
-    AGENT --> RULE[Validated and stored alert rule]
-    RULE --> ENGINE[Deterministic evaluator and quality checks]
+    AGENT --> RULE[Regla de alerta validada y almacenada]
+    RULE --> ENGINE[Evaluador determinista y comprobaciones de calidad]
     DATA --> ENGINE
-    ENGINE --> EVIDENCE[Recorded event evidence]
-    EVIDENCE --> HISTORY[Web history]
+    ENGINE --> EVIDENCE[Evidencia registrada del evento]
+    EVIDENCE --> HISTORY[Historial web]
 ```
 
-The agent and evaluator read the same market-data service. AI calls stay outside the evaluation path for each market update. Charts visualize numerical market data; image analysis and synthesized voice output are not implemented modalities.
+El agente y el evaluador consultan el mismo servicio de datos de mercado. Las llamadas a la IA quedan fuera de la evaluación de cada actualización del mercado. Los gráficos representan datos numéricos; el análisis de imágenes y la síntesis de voz no son modalidades implementadas.
 
-## Product vision
+## Visión del producto
 
-The **devil's advocate** gives users reasons to examine an alert carefully: stale observations, thin liquidity, conflicting signals, and uncertain market context. The current engine already records liquidity, freshness, and integrity checks; broader session context and verified oracle observations require further source validation.
+El **abogado del diablo** aporta motivos para examinar una alerta con cuidado: observaciones antiguas, poca liquidez, señales contradictorias y contexto de mercado incierto. El motor actual ya registra comprobaciones de liquidez, antigüedad e integridad; ampliar el contexto de sesión y las observaciones verificadas del oráculo requiere validar más fuentes.
 
-Next steps include per-user authorization and external notifications through the durable outbox. The [delivery roadmap](#delivery-roadmap) describes the wider product vision and its acceptance criteria. Users retain control over their rules and trading decisions.
+Los siguientes pasos incluyen autorización por usuario y notificaciones externas mediante la bandeja de salida persistente. El [plan de desarrollo](#plan-de-desarrollo) describe la visión completa y sus criterios de aceptación. Los usuarios mantienen el control de sus reglas y decisiones de trading.
 
-## Run locally
+## Ejecución local
 
-The chart streams Hyperliquid perpetual candles for BTC, ETH, SP500, XYZ100, and BRENTOIL through FastAPI. Use the shadcn/ui market and time interval selectors in the header to switch markets and candle durations. Supported intervals are `1m`, `3m`, `5m` (default), `15m`, `30m`, `1h`, `2h`, `4h`, `8h`, `12h`, `1d`, `3d`, `1w`, and `1M` (one month), matching the [Hyperliquid candle subscription API](https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/websocket/subscriptions). SP500, XYZ100, and BRENTOIL use the trade[XYZ] markets (`xyz:SP500`, `xyz:XYZ100`, and `xyz:BRENTOIL`). One shared ingestion task per requested market/interval pair serves every browser; the latest 200 candles per pair stay in memory.
+El gráfico transmite velas de los perpetuos BTC, ETH, SP500, XYZ100 y BRENTOIL de Hyperliquid mediante FastAPI. Los selectores de mercado e intervalo de shadcn/ui permiten cambiar de instrumento y duración de las velas. Los intervalos admitidos son `1m`, `3m`, `5m` (predeterminado), `15m`, `30m`, `1h`, `2h`, `4h`, `8h`, `12h`, `1d`, `3d`, `1w` y `1M` (un mes), conforme a la [API de suscripción a velas de Hyperliquid](https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/websocket/subscriptions). SP500, XYZ100 y BRENTOIL utilizan los mercados de trade[XYZ] (`xyz:SP500`, `xyz:XYZ100` y `xyz:BRENTOIL`). Una tarea de ingestión compartida por cada par mercado/intervalo sirve a todos los navegadores; las últimas 200 velas de cada par permanecen en memoria.
 
-The live order book follows the selected market alongside the chart (below it on mobile), with cumulative bid/ask depth, spread, exchange-side price grouping, and base/USD size units. It uses the [Hyperliquid `l2Book` snapshot stream](https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/websocket/subscriptions) with `fast: true` through `/ws/book?symbol=BTC&precision=5`. Grouping supports 5 (default), 4, 3, or 2 significant digits. Each market/grouping feed is shared across viewers and released when its last viewer leaves. The fast stream provides up to 5 levels per side, with updates measured around 0.5 seconds apart (exchange-controlled cadence). The panel shows five levels per side. A recent-trades tape fills the column below it with the latest 40 executions, newest first, showing buy/sell side, price, size in the selected base/USD unit, and local time. The `trades` subscription is shared per market across all book precisions; duplicate executions are removed. Books and trades have independent upstream connections and clear their own data when reconnecting. Missing or disconnected books are cleared while reconnecting.
+El libro de órdenes sigue al mercado seleccionado junto al gráfico, o debajo en móvil. Muestra profundidad acumulada de compra y venta, diferencial, agrupación de precios calculada por el mercado y tamaños en unidades base o USD. Utiliza el [flujo de instantáneas `l2Book` de Hyperliquid](https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/websocket/subscriptions) con `fast: true` mediante `/ws/book?symbol=BTC&precision=5`. La agrupación admite 5 cifras significativas (predeterminado), 4, 3 o 2. Cada flujo de mercado/agrupación se comparte entre los lectores y se libera cuando sale el último. El flujo rápido proporciona hasta 5 niveles por lado, con actualizaciones medidas aproximadamente cada 0,5 segundos; la cadencia depende del mercado. El panel muestra cinco niveles por lado. Debajo aparece la lista de las últimas 40 ejecuciones, de más reciente a más antigua, con lado comprador o vendedor, precio, tamaño en la unidad base o USD seleccionada y hora local. La suscripción `trades` se comparte por mercado entre todas las precisiones del libro y elimina ejecuciones duplicadas. Los libros y las operaciones tienen conexiones independientes y limpian sus propios datos al reconectar. Los libros ausentes o desconectados se vacían durante la reconexión.
 
-The right-side chat panel next to the order book uses OpenRouter through the backend. `POST /api/chat`
-accepts a nonblank `message` of up to 4,000 characters plus up to 20 optional `user`/`assistant`
-history messages, then runs the LangChain market agent and streams SSE events for text, tools and alert changes. The API key never reaches the browser.
-Conversation state remains in the current browser session and is sent with each request; it is not
-stored by Hype Radar. Enter sends; Shift+Enter adds a line. Replies can be stopped or retried after a
-failure, and New chat clears the conversation. The panel respects reduced-motion settings and stacks
-below the order book on mobile. The microphone button records up to 60 seconds, sends the audio to
-`POST /api/chat/transcribe`, and inserts the returned transcript into the composer for review without
-sending it automatically. Prompts, responses, and recordings are processed by OpenRouter and its
-selected model provider, so do not submit secrets or personal information.
+El panel de chat a la derecha del libro de órdenes utiliza OpenRouter a través del backend. `POST /api/chat` acepta un `message` no vacío de hasta 4.000 caracteres y hasta 20 mensajes opcionales del historial con roles `user`/`assistant`. Ejecuta el agente de mercado de LangChain y transmite eventos SSE de texto, herramientas y cambios de alertas. La clave de API nunca llega al navegador. El estado de la conversación permanece en la sesión del navegador y se envía con cada petición; Hype Radar no lo almacena. Intro envía el mensaje; Mayús+Intro añade una línea. Las respuestas pueden detenerse o reintentarse tras un fallo, y New chat borra la conversación. El panel respeta las preferencias de movimiento reducido y se coloca debajo del libro en móvil. El botón del micrófono graba hasta 60 segundos, envía el audio a `POST /api/chat/transcribe` e inserta la transcripción en el editor para revisarla, sin enviarla automáticamente. OpenRouter y su proveedor de modelo procesan peticiones, respuestas y grabaciones; no envíes secretos ni información personal.
 
-The bottom-left alerts panel spans the chart and order book, with **Active**, **Paused**, and **History** views. On mobile it sits directly below the chart. It refreshes every five seconds and pages through 25 rows at a time, with a current-market filter. Pagination appears only when more than one page is available. Alerts are created only through the assistant; the panel provides pause/resume controls and event evidence. Tables scroll independently, and failed refreshes label retained rows as last-loaded data.
+El panel inferior izquierdo de alertas ocupa el ancho del gráfico y del libro de órdenes. Incluye las vistas **Active**, **Paused** e **History**. En móvil aparece justo debajo del gráfico. Se actualiza cada cinco segundos, pagina 25 filas y permite filtrar por el mercado actual. La paginación aparece solo cuando hay más de una página. Las alertas se crean mediante el asistente; el panel permite pausarlas, reanudarlas y consultar la evidencia. Las tablas tienen desplazamiento independiente y, cuando falla una actualización, indican que las filas conservadas son los últimos datos cargados.
 
-Active alerts are configured active rule versions. A separate monitoring column reports **Monitoring**, **Warming up**, **Stale / interrupted**, or **Evaluator unavailable**, using the deterministic engine's current observations. Agent-created rules and pause/resume actions from the panel or agent apply immediately; other database changes are reconciled within five seconds. History retains each event's original rule name/version and distinguishes event status, condition truth, and quality. **Evidence** opens recorded values, thresholds, observation/evaluation times, OI baselines, and quality reasons. This remains an instance-wide app behind the existing deployment access boundary; owner IDs and delivery recipients are excluded. Notifications remain web-history-only.
+Las alertas activas corresponden a versiones de reglas configuradas como activas. Una columna independiente muestra **Monitoring**, **Warming up**, **Stale / interrupted** o **Evaluator unavailable**, según las observaciones actuales del motor determinista. Las reglas creadas por el agente y las acciones de pausa o reanudación se aplican inmediatamente; otros cambios en la base de datos se concilian en un máximo de cinco segundos. El historial conserva el nombre y la versión originales de cada regla y distingue el estado del evento, la verdad de la condición y la calidad de los datos. **Evidence** abre valores registrados, umbrales, tiempos de observación y evaluación, referencias de OI y motivos de calidad. La aplicación sigue siendo una instancia compartida tras la frontera de acceso del despliegue; se excluyen los identificadores de propietario y los destinatarios de entrega. Las notificaciones solo aparecen en el historial web.
 
-The panel reuses the agent's alert service through these endpoints:
+El panel reutiliza el servicio de alertas del agente mediante estos endpoints:
 
-- `GET /api/alerts?view=rules|history&status=active|paused&symbol=BTC&limit=25&offset=0`: rows and `has_more`; status filters rules only.
-- `PATCH /api/alerts/{alert_id}`: `{ "status": "active" }` or `{ "status": "paused" }`.
-- `GET /api/alerts/events/{event_id}`: immutable rule definition and recorded event evidence.
+- `GET /api/alerts?view=rules|history&status=active|paused&symbol=BTC&limit=25&offset=0`: filas y `has_more`; los filtros de estado solo se aplican a las reglas.
+- `PATCH /api/alerts/{alert_id}`: `{ "status": "active" }` o `{ "status": "paused" }`.
+- `GET /api/alerts/events/{event_id}`: definición inmutable de la regla y evidencia registrada del evento.
 
-Requirements: Python 3.12+, [uv](https://docs.astral.sh/uv/), and Node.js 22.12+.
+Requisitos: Python 3.12+, [uv](https://docs.astral.sh/uv/) y Node.js 22.12+.
 
-Start PostgreSQL, migrate the database, and start the backend from the repository root:
+Desde la raíz del repositorio, inicia PostgreSQL, aplica las migraciones y arranca el backend:
 
 ```sh
 docker compose up -d postgres
@@ -104,7 +97,7 @@ uv run alembic upgrade head
 uv run uvicorn main:app --host 127.0.0.1 --port 8000 --workers 1
 ```
 
-In a second terminal, start the frontend from the repository root:
+En otra terminal, inicia el frontend desde la raíz del repositorio:
 
 ```sh
 cd frontend
@@ -112,45 +105,37 @@ npm ci
 npm run dev
 ```
 
-Open **http://127.0.0.1:5173**. The frontend proxies `/ws/candles?symbol=BTC&interval=5m` and `/health` to the backend. The `symbol` parameter accepts `BTC` (default), `ETH`, `SP500`, `XYZ100`, or `BRENTOIL`; the `interval` parameter accepts the intervals above. Unsupported symbols or intervals are rejected. Run one backend worker to retain one exchange connection per market/interval pair. A market/interval feed starts when first subscribed and stops when its last consumer disconnects, releasing the upstream connection. Bounded cached history remains available for reads; resubscribing reconciles it with fresh exchange history. Browsers viewing the same pair continue to share one feed. History is loaded on first request and refreshed after upstream reconnection; the chart preserves its last data while reconnecting and clears it when switching markets or intervals. `/health` reports feed status per requested market/interval pair, keyed as `BTC:5m`, for example.
+Abre **http://127.0.0.1:5173**. El frontend redirige `/ws/candles?symbol=BTC&interval=5m` y `/health` al backend. El parámetro `symbol` admite `BTC` (predeterminado), `ETH`, `SP500`, `XYZ100` o `BRENTOIL`; `interval` admite los intervalos anteriores. Se rechazan símbolos o intervalos no admitidos. Ejecuta un solo worker del backend para mantener una conexión al mercado por cada par mercado/intervalo. Cada flujo comienza con la primera suscripción y se detiene al desconectarse el último consumidor, liberando la conexión. El historial acotado en caché sigue disponible para lectura; una nueva suscripción lo concilia con el historial reciente del mercado. Los navegadores que consultan el mismo par comparten el flujo. El historial se carga con la primera petición y se actualiza después de reconectar; el gráfico conserva sus últimos datos durante una reconexión y los borra al cambiar de mercado o intervalo. `/health` informa del estado de cada par solicitado con claves como `BTC:5m`.
 
-To check the frontend's types and production build, run `npm run build` in `frontend/`. No API keys are required.
+Para comprobar los tipos y la compilación de producción del frontend, ejecuta `npm run build` en `frontend/`. No se necesitan claves de API.
 
-The header's market strip shows each picker's instrument and its 24-hour perpetual mark-price change, calculated as `(markPx / prevDayPx - 1) * 100` from Hyperliquid's `metaAndAssetCtxs` (native and `xyz` markets). This is independent of the candle interval and is not an underlying stock's official daily return. Clicking an instrument selects its chart. The frontend refreshes `/api/markets` every 15 seconds after each response; the backend shares results for 10 seconds. Missing or failed market data appears as `—`, with automatic retry.
+La franja de mercados de la cabecera muestra los instrumentos del selector y la variación de su precio de marca en 24 horas, calculada como `(markPx / prevDayPx - 1) * 100` a partir de `metaAndAssetCtxs` de Hyperliquid, para los mercados nativos y `xyz`. Este dato es independiente del intervalo de las velas y no representa la rentabilidad diaria oficial de una acción subyacente. Al pulsar un instrumento se selecciona su gráfico. El frontend actualiza `/api/markets` cada 15 segundos después de cada respuesta; el backend comparte los resultados durante 10 segundos. Los datos ausentes o fallidos aparecen como `—`, con reintento automático.
 
-The Select component is adapted from [shadcn/ui](https://ui.shadcn.com/docs/components/radix/select) to the existing CSS. Market icons are bundled locally from Hyperdash's public `/icons/` assets: [BTC](https://hyperdash.com/icons/BTC.svg), [ETH](https://hyperdash.com/icons/ETH.svg), [SP500](https://hyperdash.com/icons/SP500.png), [XYZ100](https://hyperdash.com/icons/XYZ100.png), and [BRENTOIL](https://hyperdash.com/icons/BRENTOIL.png).
+El componente Select adapta [shadcn/ui](https://ui.shadcn.com/docs/components/radix/select) al CSS existente. Los iconos de mercado se incluyen localmente a partir de los recursos públicos `/icons/` de Hyperdash: [BTC](https://hyperdash.com/icons/BTC.svg), [ETH](https://hyperdash.com/icons/ETH.svg), [SP500](https://hyperdash.com/icons/SP500.png), [XYZ100](https://hyperdash.com/icons/XYZ100.png) y [BRENTOIL](https://hyperdash.com/icons/BRENTOIL.png).
 
-Run the backend regression tests with `uv run python -m unittest -v` in `backend/`.
+Ejecuta las pruebas de regresión del backend con `uv run python -m unittest -v` en `backend/`.
 
-## Production images
+## Imágenes de producción
 
-Build the backend and frontend production images from the repository root:
+Construye las imágenes de producción del backend y del frontend desde la raíz del repositorio:
 
 ```sh
 docker build -t hype-radar-backend ./backend
 docker build -t hype-radar-frontend ./frontend
 ```
 
-The backend image installs the locked runtime dependencies, runs as an unprivileged user, and starts
-one Uvicorn worker on port 8000. The frontend image builds the Vite application and serves it with
-Nginx on port 80. Nginx forwards `/api`, `/health`, and `/ws` to a container reachable as
-`backend:8000`; API response buffering is disabled for chat streaming and WebSocket upgrades are
-forwarded for live market data.
+La imagen del backend instala las dependencias fijadas, se ejecuta con un usuario sin privilegios y arranca un worker de Uvicorn en el puerto 8000. La imagen del frontend compila la aplicación Vite y la sirve con Nginx en el puerto 80. Nginx redirige `/api`, `/health` y `/ws` a un contenedor accesible como `backend:8000`; desactiva el almacenamiento intermedio de respuestas para el chat y permite la actualización de conexiones a WebSocket para los datos de mercado.
 
-Database startup, migrations, secrets, and service ordering are deployment concerns and are not run
-during image construction. Prepare the production environment from the provided template:
+El arranque de la base de datos, las migraciones, los secretos y el orden de los servicios pertenecen al despliegue y no se ejecutan al construir las imágenes. Prepara el entorno de producción con la plantilla incluida:
 
 ```sh
 cp .env.production.example .env.production
 chmod 600 .env.production
 ```
 
-Replace every placeholder in `.env.production`. `POSTGRES_PASSWORD` must be URL-safe and must match
-the password embedded in `DATABASE_URL`. Set `OPENROUTER_SITE_URL` to the public HTTPS URL used by
-the deployment. The production environment file is ignored by Git.
+Sustituye todos los valores de ejemplo de `.env.production`. `POSTGRES_PASSWORD` debe ser válido dentro de una URL y coincidir con la contraseña incluida en `DATABASE_URL`. Configura `OPENROUTER_SITE_URL` con la URL HTTPS pública del despliegue. Git ignora el archivo de entorno de producción.
 
-Create the Basic Auth password file before starting the stack. The following command prompts for the
-password instead of exposing it in shell history:
+Crea el archivo de contraseñas de Basic Auth antes de arrancar los servicios. El siguiente comando solicita la contraseña de forma interactiva para no exponerla en el historial de la terminal:
 
 ```sh
 mkdir -p .secrets
@@ -161,7 +146,7 @@ docker run --rm --interactive --tty \
 chmod 644 .secrets/htpasswd
 ```
 
-Use `-c` only when creating the file. Add another user without replacing existing users:
+Utiliza `-c` solo al crear el archivo. Para añadir otro usuario sin sustituir los existentes:
 
 ```sh
 docker run --rm --interactive --tty \
@@ -170,65 +155,45 @@ docker run --rm --interactive --tty \
   htpasswd -B /auth/htpasswd teammate@example.com
 ```
 
-An email address can be used as the username for clarity, but Basic Auth does not verify ownership of
-that email account. The ignored password file stores bcrypt hashes rather than plaintext passwords.
-The application must be accessed through HTTPS because Basic Auth credentials are otherwise only
-base64-encoded, not encrypted.
+Puedes utilizar una dirección de correo como nombre de usuario, pero Basic Auth no verifica que esa cuenta de correo pertenezca al usuario. El archivo de contraseñas, ignorado por Git, almacena hashes bcrypt y no contraseñas en texto plano. Accede a la aplicación por HTTPS: fuera de HTTPS las credenciales de Basic Auth solo están codificadas en base64, no cifradas.
 
-Build and start the complete production stack:
+Construye y arranca todos los servicios de producción:
 
 ```sh
 docker compose --env-file .env.production -f compose.prod.yml up -d --build
 docker compose --env-file .env.production -f compose.prod.yml ps --all
 ```
 
-The stack starts PostgreSQL first, waits until it is healthy, runs `alembic upgrade head` once, then
-starts the backend and finally Nginx. Only the configured frontend port is published on the host;
-PostgreSQL and FastAPI remain reachable only through their Docker networks. Container logs are
-rotated to prevent unbounded disk usage. Nginx protects the frontend and every `/api/` route with
-Basic Auth. The `/ws/` routes stream public, read-only market data without a Basic Auth challenge so
-browsers do not display a second login dialog during the WebSocket handshake; they are limited to
-four simultaneous connections per source IP. General API traffic is limited to 30 requests per
-second per source IP. Chat and transcription are additionally limited to 6 requests per minute per
-Basic Auth credential, with a short burst allowance.
+El despliegue inicia PostgreSQL, espera a que esté sano, ejecuta `alembic upgrade head` una vez y después arranca el backend y Nginx. Solo publica en el host el puerto configurado del frontend; PostgreSQL y FastAPI permanecen accesibles únicamente mediante sus redes de Docker. Los registros de los contenedores rotan para limitar el uso de disco. Nginx protege el frontend y todas las rutas `/api/` con Basic Auth. Las rutas `/ws/` transmiten datos públicos de mercado de solo lectura sin solicitar Basic Auth, para evitar un segundo diálogo de acceso durante la conexión WebSocket; se limitan a cuatro conexiones simultáneas por IP de origen. El tráfico general de API se limita a 30 peticiones por segundo e IP de origen. Además, el chat y la transcripción se limitan a 6 peticiones por minuto y credencial de Basic Auth, con una pequeña tolerancia de ráfaga.
 
-Inspect the stack or stop it without deleting PostgreSQL data:
+Consulta los servicios o detén el despliegue sin borrar los datos de PostgreSQL:
 
 ```sh
 docker compose --env-file .env.production -f compose.prod.yml logs --follow
 docker compose --env-file .env.production -f compose.prod.yml down
 ```
 
-Running `down --volumes` also deletes the PostgreSQL volume and all persisted application data.
+Ejecutar `down --volumes` también elimina el volumen de PostgreSQL y todos los datos persistidos de la aplicación.
 
-## AWS demo infrastructure
+## Infraestructura de demostración en AWS
 
-The Terraform configuration in [`infra/terraform`](infra/terraform/README.md) provisions the AWS
-demo environment: a Docker-ready Lightsail instance, attached static IP, firewall rules, a Lightsail
-CDN distribution, and an account-wide USD 15 monthly budget with email alerts. The default instance
-and CDN plans cost approximately USD 9.50 per month before taxes and overages. See the infrastructure
-README for authentication, deployment, security, and teardown instructions.
+La configuración Terraform de [`infra/terraform`](infra/terraform/README.md) prepara el entorno de demostración en AWS: una instancia Lightsail preparada para Docker, una IP estática asociada, reglas de cortafuegos, una distribución CDN de Lightsail y un presupuesto mensual de 15 USD para la cuenta con alertas por correo. Los planes predeterminados de instancia y CDN tienen un coste aproximado de 9,50 USD al mes, antes de impuestos y excesos de consumo. Consulta el README de infraestructura para las instrucciones de autenticación, despliegue, seguridad y eliminación de recursos.
 
-## Shared market-data API
+## API compartida de datos de mercado
 
-The same service serves browser WebSockets, read-only HTTP calls, and deterministic alerts. Agent
-code can call it directly without an LLM framework or API key. Standalone market-data reads do not
-need a database; the FastAPI backend always starts alert evaluation and requires PostgreSQL.
+El mismo servicio atiende los WebSockets del navegador, las lecturas HTTP y las alertas deterministas. El agente puede utilizarlo directamente sin un framework de LLM ni clave de API. Las lecturas independientes de datos de mercado no requieren base de datos; el backend FastAPI siempre inicia la evaluación de alertas y necesita PostgreSQL.
 
-| Object | Responsibility |
+| Objeto | Responsabilidad |
 | --- | --- |
-| `HyperliquidClient` (`app/ingestion/client.py`) | Reusable async HTTP client, exchange requests, subscriptions, heartbeat and reconnect handling. |
-| `MarketDataService` (`app/application/market_data.py`) | Registry lookup, shared subscriptions, cached reads, typed snapshots and lifecycle. |
-| Channel feed objects (`feed.py`) | Candle reconciliation, book replacement, context observations and trade deduplication. |
-| `HyperliquidNormalizer` | Convert validated exchange values to deterministic `MarketObservation` records. |
-| `EvaluationWorker` | Consume the shared service and persist rule outcomes; it owns no exchange connections. |
+| `HyperliquidClient` (`app/ingestion/client.py`) | Cliente HTTP asíncrono reutilizable, peticiones al mercado, suscripciones, comprobaciones de actividad y reconexiones. |
+| `MarketDataService` (`app/application/market_data.py`) | Consulta del registro, suscripciones compartidas, lecturas en caché, instantáneas tipadas y ciclo de vida. |
+| Objetos de flujo por canal (`feed.py`) | Conciliación de velas, sustitución del libro, observaciones de contexto y eliminación de operaciones duplicadas. |
+| `HyperliquidNormalizer` | Conversión de valores validados del mercado a registros deterministas `MarketObservation`. |
+| `EvaluationWorker` | Consume el servicio compartido y persiste los resultados de las reglas; no mantiene conexiones propias al mercado. |
 
-`app/domain/markets.py` is the configured registry: BTC, ETH, HYPE, SP500, XYZ100, and BRENTOIL.
-Display aliases (`SP500`) and exchange names (`xyz:SP500`) resolve to the same identity. The existing
-UI still lists its original five markets. `HYPERLIQUID_NETWORK=mainnet` is the default; `testnet`
-changes both transport URLs. The configured markets must exist on the selected network.
+`app/domain/markets.py` contiene el registro configurado: BTC, ETH, HYPE, SP500, XYZ100 y BRENTOIL. Los alias de visualización (`SP500`) y los nombres del mercado (`xyz:SP500`) se resuelven a la misma identidad. La interfaz sigue mostrando sus cinco mercados originales. `HYPERLIQUID_NETWORK=mainnet` es la opción predeterminada; `testnet` cambia ambas URL de transporte. Los mercados configurados deben existir en la red seleccionada.
 
-From `backend/`, a standalone read client looks like this:
+Desde `backend/`, un cliente de lectura independiente puede utilizarse así:
 
 ```python
 import asyncio
@@ -253,66 +218,40 @@ async def main():
 asyncio.run(main())
 ```
 
-Inside the backend, reuse `request.app.state.markets` or inject it into the consumer constructor;
-do not construct a second service. A separately launched script owns independent connections.
-Subscriptions are async context managers: exiting releases that consumer's ownership. Identical
-subscription options share one upstream task. Trades are shared independently of book precision.
-The default subscribed book is ungrouped, normal-depth; UI adapters explicitly request fast grouped
-books. Bounded subscriber queues terminate slow consumers with `SlowConsumer`; an evaluator stops
-rather than silently losing observations.
+Dentro del backend, reutiliza `request.app.state.markets` o inyéctalo en el constructor del consumidor; no crees un segundo servicio. Un script ejecutado por separado mantiene conexiones independientes. Las suscripciones son gestores de contexto asíncronos: al salir liberan la participación del consumidor. Las opciones de suscripción idénticas comparten una sola tarea de conexión. Las operaciones se comparten independientemente de la precisión del libro. El libro suscrito de forma predeterminada tiene profundidad normal y no agrupa precios; los adaptadores de la interfaz solicitan explícitamente libros rápidos agrupados. Las colas acotadas terminan los consumidores lentos con `SlowConsumer`; un evaluador se detiene antes que perder observaciones silenciosamente.
 
-HTTP equivalents (all GET):
+Equivalentes HTTP, todos mediante GET:
 
-| Route | Parameters |
+| Ruta | Parámetros |
 | --- | --- |
-| `/api/market-data` | Configured identities, including HYPE. |
-| `/api/market-data/{market}/snapshot` | Combined context and ungrouped normal-depth book. |
+| `/api/market-data` | Identidades configuradas, incluida HYPE. |
+| `/api/market-data/{market}/snapshot` | Contexto combinado y libro de profundidad normal sin agrupación. |
 | `/api/market-data/{market}/candles` | `interval=5m`, `limit=200` (1–200). |
-| `/api/market-data/{market}/book` | `precision=5` (2–5 or `full`), `fast=true`; `full` maps to Python `None`. |
-| `/api/market-data/{market}/trades` | `limit=40` (1–40); returns up to that many observed trades. |
+| `/api/market-data/{market}/book` | `precision=5` (2–5 o `full`), `fast=true`; `full` equivale a `None` en Python. |
+| `/api/market-data/{market}/trades` | `limit=40` (1–40); devuelve hasta ese número de operaciones observadas. |
 
 ```sh
 curl 'http://127.0.0.1:8000/api/market-data/xyz:SP500/snapshot'
 curl 'http://127.0.0.1:8000/api/market-data/BTC/book?precision=full&fast=false'
 ```
 
-Financial values are Decimal strings in JSON. Snapshot fields carry `source_at`, `received_at`,
-`timestamp_basis`, and `fresh`/`stale`/`missing` status. Context freshness defaults to 30 seconds;
-book freshness uses the exchange timestamp and a 15-second budget. Rule-specific budgets still
-control evaluation. The snapshot's `assembled_at` is not a common exchange observation time.
-Missing fields stay null; a book update never refreshes OI or funding. Spread and mid derive from
-the same book. Depth sums only supplied levels and includes grouping, actual side counts and
-`quote_notional` units; it is not a full-market liquidity estimate. Funding is the observed raw
-rate, and volume/change refer to the perpetual market, not an underlying stock's official return.
+Los valores financieros se representan como cadenas Decimal en JSON. Los campos de las instantáneas incluyen `source_at`, `received_at`, `timestamp_basis` y los estados `fresh`/`stale`/`missing`. El límite de antigüedad del contexto es de 30 segundos por defecto; el del libro utiliza la marca temporal del mercado y 15 segundos. Los límites de cada regla siguen controlando su evaluación. `assembled_at` no es un tiempo de observación común del mercado. Los campos ausentes permanecen nulos; una actualización del libro nunca actualiza la antigüedad de OI ni de financiación. El diferencial y el precio medio se calculan a partir del mismo libro. La profundidad suma únicamente los niveles suministrados e incluye agrupación, cantidades reales de niveles por lado y unidades `quote_notional`; no estima la liquidez de todo el mercado. La financiación es la tasa bruta observada, y el volumen y la variación corresponden al mercado del perpetuo, no a la rentabilidad oficial de una acción subyacente.
 
-Reads reuse fresh state or perform bounded REST requests (temporary streaming for trades), with
-a total ten-second deadline. A snapshot may contain explicitly stale or missing fields; no usable
-data returns 503. Other read endpoints return 503 when no sufficiently current result is available.
-Unknown markets return 404 and invalid query options return 422. The legacy `/api/markets` numeric
-percentage mapping and existing WebSocket routes remain compatible. `/health` retains chart/book
-sections and adds all active subscriptions plus evaluator status; unhealthy active feeds return 503.
+Las lecturas reutilizan el estado reciente o realizan peticiones REST acotadas, con transmisión temporal para las operaciones y un plazo total de diez segundos. Una instantánea puede contener campos explícitamente antiguos o ausentes; si no hay datos utilizables, devuelve 503. Los demás endpoints de lectura devuelven 503 si no disponen de un resultado suficientemente reciente. Los mercados desconocidos devuelven 404 y las opciones de consulta no válidas, 422. Se conserva la compatibilidad del mapa numérico de porcentajes de `/api/markets` y de las rutas WebSocket existentes. `/health` mantiene sus secciones de gráfico y libro y añade las suscripciones activas y el estado del evaluador; los flujos activos no saludables producen 503.
 
-## Deterministic alert core
+## Núcleo determinista de alertas
 
-The alert evaluator is an always-running supervised task in the same process as FastAPI, using the same market-data service. It stores normalized market samples,
-immutable rule versions, runtime checkpoints, alert events, evidence, and notification intent in
-PostgreSQL. Event, evidence, runtime, and outbox changes are committed atomically. Economic values
-use `Decimal` in Python and `NUMERIC(38, 18)` in PostgreSQL.
+El evaluador de alertas es una tarea supervisada que se ejecuta continuamente en el mismo proceso que FastAPI y utiliza el servicio compartido de datos de mercado. Almacena muestras normalizadas, versiones inmutables de reglas, puntos de recuperación del estado de ejecución, eventos, evidencia e intención de notificación en PostgreSQL. Los cambios de evento, evidencia, estado y bandeja de salida se confirman atómicamente. Los valores económicos utilizan `Decimal` en Python y `NUMERIC(38, 18)` en PostgreSQL.
 
-The first deterministic predicates support current-value thresholds and absolute or percentage open
-interest changes over explicit windows. Rules combine predicates with `all` or `any`, using
-three-valued `true / false / unknown` logic. Persistence, cooldown, freshness, spread, depth, feed-gap,
-out-of-order, and verified-oracle checks are evaluated without an LLM. The exchange's
-`activeAssetCtx` channel does not provide a source timestamp, so those observations explicitly use
-the backend reception time; `l2Book` observations retain the exchange timestamp.
+Los primeros predicados deterministas admiten umbrales de valor actual y cambios absolutos o porcentuales del interés abierto durante ventanas explícitas. Las reglas combinan predicados con `all` o `any` y lógica de tres valores `true / false / unknown`. La persistencia, el periodo entre eventos, la antigüedad, el diferencial, la profundidad, las interrupciones, el desorden temporal y las comprobaciones de oráculo verificado se evalúan sin un LLM. El canal `activeAssetCtx` no proporciona una marca temporal de origen, por lo que sus observaciones utilizan explícitamente el momento de recepción del backend; las observaciones `l2Book` conservan la marca temporal del mercado.
 
-Start PostgreSQL from the repository root:
+Inicia PostgreSQL desde la raíz del repositorio:
 
 ```sh
 docker compose up -d postgres
 ```
 
-Prepare and migrate the backend:
+Prepara el backend y aplica las migraciones:
 
 ```sh
 cd backend
@@ -321,35 +260,22 @@ uv sync --locked
 uv run alembic upgrade head
 ```
 
-Run the versioned deterministic replay fixture:
+Ejecuta el caso de reproducción determinista versionado:
 
 ```sh
 uv run python -m app.workers.replay tests/fixtures/hype_breakout.json
 ```
 
-Register a reviewed rule definition for BTC, ETH, SP500, XYZ100, or BRENTOIL on the
-configured network. A running backend picks up changes within five seconds. Rule creation and new
-versions reject unsupported markets before writing a rule. HIP-3 definitions must
-use `dex: "xyz"` and the unprefixed coin (for example, `coin: "SP500"`). The HYPE
-replay fixture above is synthetic test data and cannot be registered as an active rule.
+Registra una definición de regla revisada para BTC, ETH, SP500, XYZ100 o BRENTOIL en la red configurada. Un backend en ejecución recoge los cambios en un máximo de cinco segundos. La creación de reglas y nuevas versiones rechaza los mercados no admitidos antes de escribirlos. Las definiciones HIP-3 deben utilizar `dex: "xyz"` y el símbolo sin prefijo, por ejemplo, `coin: "SP500"`. El caso de reproducción con HYPE anterior contiene datos sintéticos de prueba y no puede registrarse como regla activa.
 
 ```sh
 uv run python -m app.workers.seed_rule path/to/your-rule.json
 uv run uvicorn main:app --host 127.0.0.1 --port 8000 --workers 1
 ```
 
-The evaluator holds shared context and ungrouped normal-depth book subscriptions for each active
-market. Closing browser tabs cannot stop those subscriptions. It rebuilds required windows from
-stored samples, evaluates observations and timers, and persists emitted events in PostgreSQL.
-It loads rules at startup, applies agent changes immediately, and reconciles stored active versions every five seconds.
-Alert evaluation starts automatically with the backend. With no active rules it stays idle.
-Database/rule-loading failures prevent startup. A runtime evaluator failure stops evaluation and
-makes `/health` return 503; restart after resolving the cause. The agent can pause or resume confirmed alerts.
-The former standalone live-evaluator command has been removed; seed and replay commands remain. External
-notification delivery, per-user authentication, and editing existing rule conditions remain later work;
-outbox rows are durable but are not sent yet.
+El evaluador mantiene suscripciones compartidas de contexto y de libro sin agrupación y profundidad normal para cada mercado activo. Cerrar las pestañas del navegador no detiene esas suscripciones. Reconstruye las ventanas necesarias a partir de muestras almacenadas, evalúa observaciones y temporizadores y persiste los eventos en PostgreSQL. Carga las reglas al arrancar, aplica inmediatamente los cambios del agente y concilia las versiones activas almacenadas cada cinco segundos. La evaluación se inicia automáticamente con el backend y permanece inactiva si no hay reglas activas. Los fallos de base de datos o carga de reglas impiden el arranque. Un fallo del evaluador en ejecución detiene la evaluación y hace que `/health` devuelva 503; reinicia después de resolver la causa. El agente puede pausar o reanudar alertas confirmadas. Se ha eliminado el antiguo comando independiente de evaluación en directo; se mantienen los comandos de registro y reproducción. La entrega externa de notificaciones, la autenticación por usuario y la edición de condiciones de reglas existentes siguen pendientes; las filas de la bandeja de salida son persistentes, pero todavía no se envían.
 
-Run the isolated PostgreSQL integration test with:
+Ejecuta la prueba de integración aislada con PostgreSQL:
 
 ```sh
 docker compose --profile test up -d postgres-test
@@ -360,12 +286,11 @@ TEST_DATABASE_URL=postgresql+psycopg://hype_radar:hype_radar@127.0.0.1:55432/hyp
   uv run python -m unittest -v tests.test_persistence
 ```
 
-## OpenRouter chat
+## Chat con OpenRouter
 
-OpenRouter remains the default. An optional [Qwen EC2 test setup](infra/qwen-ec2/README.md)
-uses a private env overlay to try self-hosted vLLM without changing application defaults.
+OpenRouter sigue siendo el proveedor predeterminado. La [configuración opcional de prueba de Qwen en EC2](infra/qwen-ec2/README.md) utiliza variables de entorno privadas superpuestas para probar vLLM autoalojado sin cambiar los valores predeterminados de la aplicación.
 
-Create an API key in OpenRouter and add it to `backend/.env`; never commit the real value:
+Crea una clave de API en OpenRouter y añádela a `backend/.env`; nunca incluyas su valor real en un commit:
 
 ```dotenv
 OPENROUTER_API_KEY=sk-or-v1-...
@@ -373,202 +298,172 @@ OPENROUTER_MODEL=deepseek/deepseek-v4-flash
 OPENROUTER_TRANSCRIPTION_MODEL=openai/whisper-1
 ```
 
-Restart the backend after changing `.env`. `OPENROUTER_MODEL` accepts any model slug available to the
-account with tool-calling support. The default is `deepseek/deepseek-v4-flash`; routing requires providers
-to support the requested parameters. `OPENROUTER_SITE_URL` and `OPENROUTER_APP_NAME` configure optional application
-attribution headers. `OPENROUTER_TIMEOUT_SECONDS` and `OPENROUTER_MAX_COMPLETION_TOKENS` bound each
-provider request. Voice input uses OpenRouter's dedicated `/api/v1/audio/transcriptions` endpoint.
-`OPENROUTER_TRANSCRIPTION_LANGUAGE` can contain an ISO-639-1 hint such as `es`; leave it empty for
-automatic language detection. `OPENROUTER_MAX_AUDIO_BYTES` defaults to 10 MiB.
+Reinicia el backend después de modificar `.env`. `OPENROUTER_MODEL` admite cualquier identificador de modelo disponible para la cuenta que soporte llamadas a herramientas. El predeterminado es `deepseek/deepseek-v4-flash`; el enrutamiento requiere proveedores compatibles con los parámetros solicitados. `OPENROUTER_SITE_URL` y `OPENROUTER_APP_NAME` configuran cabeceras opcionales de atribución. `OPENROUTER_TIMEOUT_SECONDS` y `OPENROUTER_MAX_COMPLETION_TOKENS` limitan cada petición al proveedor. La entrada por voz utiliza el endpoint específico `/api/v1/audio/transcriptions` de OpenRouter. `OPENROUTER_TRANSCRIPTION_LANGUAGE` puede contener una pista ISO-639-1, como `es`; déjala vacía para detectar el idioma automáticamente. `OPENROUTER_MAX_AUDIO_BYTES` tiene un valor predeterminado de 10 MiB.
 
-`backend/app/application/agent.py` uses `langchain.agents.create_agent` and `ChatOpenRouter` with ten typed tools:
+`backend/app/application/agent.py` utiliza `langchain.agents.create_agent` y `ChatOpenRouter` con diez herramientas tipadas:
 
 - `list_markets`, `get_market_snapshot`, `get_candles`, `get_market_microstructure`, `get_metric_history`.
 - `preview_alert`, `create_alert`, `list_alerts`, `set_alert_status`, `get_alert_event`.
 
-Market tools share the dashboard's `MarketDataService`. They report sources, timestamps, units and
-coverage limitations. Candle results contain OHLC prices (no volume); metric history is limited to
-200 observations from at most 24 hours and may be incomplete if the market was not monitored.
-News search, technical-indicator alert predicates, and external notification delivery remain future work.
+Las herramientas de mercado comparten el `MarketDataService` de la interfaz. Informan de fuentes, marcas temporales, unidades y límites de cobertura. Las velas contienen precios OHLC sin volumen; el historial de métricas se limita a 200 observaciones de un máximo de 24 horas y puede estar incompleto si el mercado no se estaba monitorizando. La búsqueda de noticias, las condiciones de indicadores técnicos y la entrega externa de notificaciones siguen previstas para el futuro.
 
-An explicit request to create an alert invokes `create_alert` with its typed conditions and activates it
-in the same turn. There is no confirmation card, extra button or confirmation token. The agent reports the
-saved definition and actual monitoring state. Ambiguous requests still require the missing conditions.
-`preview_alert` is available for explicit preview-only requests; it saves an inactive draft and explains it
-in the conversation without an activation component. Internally creation validates an immutable version
-before activation. `request_id` and normalized conditions identify a saved rule across retries, independent
-of tool-call order, generated names, decimal formatting and predicate order. Equivalent conditions reuse the
-saved definition and do not reactivate a subsequently paused rule; different markets or conditions identify
-separate rules. This deduplicates equivalent tool calls, not arbitrary changes to model-generated conditions.
-Draft activation expires after one hour. `list_alerts` returns up to
-30 rules or events per page; pass its `next_offset` with the same filters to retrieve older entries.
-Stopping a response does not undo a committed rule. Check the alerts list after an interrupted write.
-The evaluator also reconciles committed writes whose HTTP response was lost. Pausing releases evaluator-owned
-subscriptions when no remaining rule uses that market; browser-owned subscriptions remain independent.
-Resuming starts a new condition episode and persistence period, preserving the previous cooldown and event sequence.
+Una petición explícita de creación llama a `create_alert` con sus condiciones tipadas y activa la alerta en el mismo turno. No hay tarjeta de confirmación, botón adicional ni token de confirmación. El agente informa de la definición guardada y del estado real de monitorización. Las peticiones ambiguas requieren completar las condiciones que faltan. `preview_alert` permite peticiones explícitas de vista previa: guarda un borrador inactivo y lo explica en la conversación sin un componente de activación. Internamente, la creación valida una versión inmutable antes de activarla. `request_id` y las condiciones normalizadas identifican una regla guardada entre reintentos, independientemente del orden de llamadas a herramientas, nombres generados, formato decimal u orden de predicados. Las condiciones equivalentes reutilizan la definición guardada y no reactivan una regla pausada posteriormente; distintos mercados o condiciones identifican reglas separadas. Esto elimina llamadas equivalentes, no cambios arbitrarios en condiciones generadas por el modelo. La activación de borradores caduca después de una hora. `list_alerts` devuelve hasta 30 reglas o eventos por página; utiliza `next_offset` con los mismos filtros para recuperar entradas anteriores. Detener una respuesta no revierte una regla ya confirmada en la base de datos. Consulta la lista de alertas después de una escritura interrumpida. El evaluador también concilia escrituras confirmadas cuya respuesta HTTP se perdió. La pausa libera las suscripciones del evaluador cuando ninguna otra regla utiliza ese mercado; las suscripciones del navegador siguen siendo independientes. La reanudación inicia un nuevo episodio de condición y periodo de persistencia, conservando el periodo anterior entre eventos y su secuencia.
 
-This remains an unauthenticated, instance-wide app. New agent rules use a server-owned instance identity;
-the model cannot choose owners or delivery recipients. Use the existing deployment access boundary.
+La aplicación sigue sin autenticación interna y funciona como una instancia compartida. Las nuevas reglas del agente utilizan una identidad de instancia controlada por el servidor; el modelo no puede elegir propietarios ni destinatarios. Utiliza la frontera de acceso existente del despliegue.
 
-`POST /api/chat` returns `text/event-stream` with JSON `data:` frames of types `text`, `tool_start`,
-`tool_end`, `alert_changed`, `done`, and `error`. Each turn is limited to six model calls,
-twelve tool calls, and 75 seconds. Missing configuration returns `503`; errors during the agent run
-produce an explicit `error` event instead of a successful completion. Retries preserve their request ID.
-Conversation text remains browser-local and bounded; the server persists alert previews, rules and evidence.
-`/health` reports the configured model and evaluator state without exposing credentials.
-Audio recordings are held in memory only for transcription and are not stored by Hype Radar.
+`POST /api/chat` devuelve `text/event-stream` con tramas JSON `data:` de tipos `text`, `tool_start`, `tool_end`, `alert_changed`, `done` y `error`. Cada turno se limita a seis llamadas al modelo, doce llamadas a herramientas y 75 segundos. La falta de configuración devuelve `503`; los fallos durante la ejecución del agente producen un evento explícito `error`, no una finalización correcta. Los reintentos conservan su identificador de petición. El texto de conversación permanece acotado en el navegador; el servidor persiste borradores de alertas, reglas y evidencia. `/health` informa del modelo configurado y del estado del evaluador sin exponer credenciales. Las grabaciones de audio solo permanecen en memoria para transcribirlas; Hype Radar no las almacena.
 
-## Proposed architecture
+## Arquitectura propuesta
 
-The current modular monolith runs ingestion, evaluation, and API tasks in one process. A future notification worker can consume the durable outbox independently. Run exactly one Uvicorn worker: in-memory subscriptions and state are shared within that process.
+El monolito modular actual ejecuta las tareas de ingestión, evaluación y API en un solo proceso. En el futuro, un worker de notificaciones podrá consumir la bandeja de salida persistente de forma independiente. Ejecuta exactamente un worker de Uvicorn: las suscripciones y el estado en memoria se comparten dentro de ese proceso.
 
 ```mermaid
 flowchart TD
-    WS[Hyperliquid WebSocket] --> ING[Ingestion and normalization]
-    REST[REST startup and reconciliation snapshots] --> ING
-    ING --> STATE[Recent market state and window buffers]
-    ING --> SAMPLES[(PostgreSQL market samples)]
-    STATE --> EVAL[Deterministic evaluator and quality checks]
-    EVAL --> EVENTS[(PostgreSQL events, evidence and outbox)]
-    EVENTS --> NOTIFY[Notification worker]
+    WS[WebSocket de Hyperliquid] --> ING[Ingestión y normalización]
+    REST[Instantáneas REST de arranque y conciliación] --> ING
+    ING --> STATE[Estado reciente y ventanas de observación]
+    ING --> SAMPLES[(Muestras de mercado en PostgreSQL)]
+    STATE --> EVAL[Evaluador determinista y comprobaciones de calidad]
+    EVAL --> EVENTS[(Eventos, evidencia y bandeja de salida en PostgreSQL)]
+    EVENTS --> NOTIFY[Worker de notificaciones]
     NOTIFY --> TG[Telegram]
-    NOTIFY --> WEB[Web notifications]
+    NOTIFY --> WEB[Notificaciones web]
     SAMPLES --> API[FastAPI]
     EVENTS --> API
-    API --> UI[React web app via HTTP and WebSocket or SSE]
+    API --> UI[Aplicación React mediante HTTP y WebSocket o SSE]
     UI --> API
-    API --> AI[AI rule proposals and deferred explanations]
+    API --> AI[Propuestas de reglas y explicaciones diferidas con IA]
     AI --> API
 ```
 
-Exchange feeds and external-provider content are data, not instructions. AI is outside the signal-evaluation path. Events, evidence, and notification intent must be durable before any external notification is sent.
+Los flujos del mercado y el contenido de proveedores externos son datos, no instrucciones. La IA queda fuera de la evaluación de señales. Los eventos, su evidencia y la intención de notificación deben persistir antes de enviar cualquier notificación externa.
 
-### Proposed stack
+### Tecnologías propuestas
 
-| Component | Choice and responsibility |
+| Componente | Elección y responsabilidad |
 | --- | --- |
-| Frontend | Vite, React, TypeScript: rule management, event history, evidence, and feed health. Live updates come from our backend. |
-| HTTP API | Python, FastAPI, Pydantic: authentication, per-user authorization, validated rules, event queries, live updates, and health endpoints. |
-| Ingestion | Python `asyncio`: shared Hyperliquid WebSocket subscriptions and REST reconciliation. |
-| Rule engine | Deterministic Python: in-memory windows, incremental evaluation, quality checks, and runtime checkpoints. |
-| Storage | PostgreSQL, SQLAlchemy 2, Alembic: market observations, immutable rule versions, events, evidence, and delivery records. Each concurrent task owns its database session. |
-| Notifications | Separate worker with a transactional outbox, retries with backoff, and idempotency per event/channel/recipient. |
-| AI assistance | LangChain and Pydantic structured outputs behind a `ModelProvider` interface; provider/model selection follows evaluation. |
-| Delivery | Docker, CI for lint/type checks/tests/migrations, TLS, managed secrets, verified database backups, and operational metrics. |
+| Frontend | Vite, React, TypeScript: gestión de reglas, historial de eventos, evidencia y estado de los flujos. Las actualizaciones en directo llegan desde nuestro backend. |
+| API HTTP | Python, FastAPI, Pydantic: autenticación, autorización por usuario, reglas validadas, consultas de eventos, actualizaciones en directo y endpoints de salud. |
+| Ingestión | Python `asyncio`: suscripciones WebSocket compartidas de Hyperliquid y conciliación REST. |
+| Motor de reglas | Python determinista: ventanas en memoria, evaluación incremental, comprobaciones de calidad y puntos de recuperación. |
+| Almacenamiento | PostgreSQL, SQLAlchemy 2, Alembic: observaciones de mercado, versiones inmutables de reglas, eventos, evidencia y registros de entrega. Cada tarea concurrente mantiene su propia sesión de base de datos. |
+| Notificaciones | Worker independiente con bandeja de salida transaccional, reintentos con espera creciente e idempotencia por evento/canal/destinatario. |
+| Asistencia de IA | LangChain y salidas estructuradas de Pydantic mediante una interfaz `ModelProvider`; la elección de proveedor y modelo depende de su evaluación. |
+| Entrega | Docker, CI de estilo/tipos/pruebas/migraciones, TLS, secretos gestionados, copias de seguridad verificadas y métricas operativas. |
 
-Redis, pgvector, object storage for large raw datasets, and a full OpenTelemetry setup are later options if scale or measured usage requires them.
+Redis, pgvector, almacenamiento de objetos para grandes conjuntos de datos brutos y una configuración completa de OpenTelemetry son opciones posteriores si la escala o el uso medido lo requieren.
 
-## Market data and interpretation
+## Datos de mercado e interpretación
 
-The current service uses `activeAssetCtx`, `l2Book`, `trades`, and candles on demand, with REST `metaAndAssetCtxs` for context bootstrap and REST book/candle snapshots for cold reads. New markets and deployers still require validation of channel behavior, fields, cadences, and API limits.
+El servicio actual utiliza `activeAssetCtx`, `l2Book`, `trades` y velas bajo demanda, con `metaAndAssetCtxs` mediante REST para cargar el contexto inicial y solicitudes REST de libros y velas para lecturas sin caché previa. Los nuevos mercados y operadores HIP-3 requieren validar el comportamiento de los canales, sus campos, cadencias y límites de API.
 
-| Data | Required interpretation |
+| Dato | Interpretación requerida |
 | --- | --- |
-| Price | Store mark, oracle, bid, ask, and mid separately. Mark price is not necessarily executable. A rule names the reference it compares. |
-| OI | Preserve units and calculate changes from compatible, valid samples over a defined window. A price tick does not establish that OI was updated. |
-| Funding | Preserve the rate, period, and observation time; distinguish observed rates, predictions, and settled payments. |
-| Liquidity | Check spread in basis points, depth for a configurable reference notional, book freshness, and activity. A snapshot does not guarantee execution liquidity. |
-| HIP-3 context | Use deployer-specific evidence and session metadata. Do not infer oracle mode from the clock, spread, or price divergence. |
-| Underlying stocks | Do not label a perpetual's `prevDayPx` as the stock's official previous close. Licensed stock data and calendars are a later integration. |
+| Precio | Almacenar por separado marca, oráculo, compra, venta y precio medio. El precio de marca no es necesariamente ejecutable. Cada regla identifica la referencia que compara. |
+| OI | Conservar las unidades y calcular cambios a partir de muestras compatibles y válidas en una ventana definida. Una actualización de precio no demuestra que se haya actualizado OI. |
+| Financiación | Conservar tasa, periodo y tiempo de observación; distinguir tasas observadas, predicciones y pagos liquidados. |
+| Liquidez | Comprobar diferencial en puntos básicos, profundidad para un nominal de referencia configurable, antigüedad del libro y actividad. Una instantánea no garantiza liquidez de ejecución. |
+| Contexto HIP-3 | Utilizar evidencia específica del operador y metadatos de sesión. No deducir el modo del oráculo a partir del reloj, el diferencial o la divergencia de precios. |
+| Acciones subyacentes | No presentar `prevDayPx` de un perpetuo como el cierre anterior oficial de la acción. Los datos bursátiles con licencia y los calendarios son una integración posterior. |
 
-### HIP-3 feasibility gate
+### Comprobación de viabilidad de HIP-3
 
-The reference proposes investigating trade[XYZ] as a possible first deployer; this is not a final selection. Determine whether an explicit external/internal oracle state is programmatically accessible, timestamped, and stable.
+La referencia propone investigar trade[XYZ] como posible primer operador; no es una elección definitiva. Determina si el estado explícito externo/interno del oráculo es accesible de forma programática, incorpora una marca temporal y es estable.
 
-Use `EXTERNO` or `INTERNO` only with direct, validated evidence. Otherwise expose `NO_VERIFICADO` consistently in the web app, API, and notifications. Observable session transitions, spread changes, and reference-price divergence can still be reported, but cannot establish an oracle-mode switch. Findings for one deployer must not be generalized to others.
+Utiliza `EXTERNO` o `INTERNO` únicamente con evidencia directa y validada. En caso contrario, muestra `NO_VERIFICADO` de forma consistente en la aplicación, la API y las notificaciones. Se pueden informar transiciones observables de sesión, cambios de diferencial y divergencias del precio de referencia, pero esos datos no demuestran un cambio de modo del oráculo. Los resultados de un operador no deben generalizarse a los demás.
 
-## Rule and alert lifecycle
+## Ciclo de vida de reglas y alertas
 
-1. **Request and create.** An explicit user request lets the agent produce typed predicates and activate the immutable rule version directly. The backend validates markets, units, windows, and thresholds. Preview-only requests remain inactive; read-only analysis does not authorize mutations.
-2. **Warm up.** Load active rules, index them by market and dependent metric, and build the required observation windows. Incomplete windows remain unknown.
-3. **Ingest.** Stamp reception time, validate identity and schema, handle duplicates/out-of-order observations according to channel guarantees, and update recent state. Batch sample persistence outside the critical evaluation path.
-4. **Evaluate.** Reevaluate affected rules on relevant metric changes and timers for persistence, stale data, and cooldown. Each field has its own freshness budget.
-5. **Apply quality policy.** Evaluate the condition and devil's advocate checks separately. Missing mandatory observations produce `data_unknown`, never an automatic `false` result.
-6. **Persist atomically.** Write the event, sufficient reproducible evidence, and outbox entry in one transaction. A unique event fingerprint based on rule version, trigger episode, and transition prevents duplicate events.
-7. **Deliver and trace.** The worker sends asynchronously, records attempts/results, and links to the event detail. Later edits to a rule do not change historical evidence.
-8. **Recover honestly.** On restart or disconnect, mark affected data unreliable, reconcile snapshots, and rebuild windows before dependent evaluation resumes. Do not present unobserved transitions as live alerts. Any recovery-detected event must expose the gap and delayed detection.
+1. **Solicitud y creación.** Una petición explícita permite al agente generar predicados tipados y activar directamente una versión inmutable. El backend valida mercados, unidades, ventanas y umbrales. Las vistas previas permanecen inactivas; el análisis de solo lectura no autoriza cambios.
+2. **Calentamiento.** Carga reglas activas, indéxalas por mercado y métrica dependiente y construye las ventanas de observación necesarias. Las ventanas incompletas permanecen desconocidas.
+3. **Ingestión.** Registra el tiempo de recepción, valida identidad y esquema, gestiona duplicados y observaciones desordenadas según las garantías del canal y actualiza el estado reciente. Persiste las muestras por lotes fuera de la ruta crítica de evaluación.
+4. **Evaluación.** Reevalúa las reglas afectadas al cambiar métricas relevantes y mediante temporizadores de persistencia, antigüedad y espera entre eventos. Cada campo tiene su propio límite de antigüedad.
+5. **Política de calidad.** Evalúa por separado la condición y las comprobaciones del abogado del diablo. La falta de observaciones obligatorias produce `data_unknown`, nunca un resultado automático `false`.
+6. **Persistencia atómica.** Escribe el evento, evidencia suficiente para reproducirlo y la entrada de la bandeja de salida en una transacción. Una huella única basada en versión de regla, episodio y transición evita eventos duplicados.
+7. **Entrega y trazabilidad.** El worker envía de forma asíncrona, registra intentos y resultados y enlaza el detalle del evento. Los cambios posteriores de la regla no alteran la evidencia histórica.
+8. **Recuperación transparente.** Tras un reinicio o desconexión, marca los datos afectados como no fiables, concilia instantáneas y reconstruye ventanas antes de reanudar la evaluación dependiente. No presentes transiciones no observadas como alertas en directo. Un evento detectado durante la recuperación debe indicar la interrupción y el retraso de detección.
 
-Delivery to external providers is **at least once**; retries and database uniqueness do not guarantee exactly-once Telegram delivery.
+La entrega a proveedores externos es **al menos una vez**; los reintentos y la unicidad de la base de datos no garantizan una entrega exactamente una vez en Telegram.
 
-## Devil's advocate checks
+## Comprobaciones del abogado del diablo
 
-Each check returns `PASS`, `WARN`, `BLOCK`, or `UNKNOWN`, together with a reason code and evidence. Thresholds must be calibrated per market, session, and reference notional.
+Cada comprobación devuelve `PASS`, `WARN`, `BLOCK` o `UNKNOWN`, junto con un código de motivo y evidencia. Los umbrales deben calibrarse por mercado, sesión y nominal de referencia.
 
-| Check | Example reason codes |
+| Comprobación | Ejemplos de códigos de motivo |
 | --- | --- |
-| Per-field freshness | `STALE_PRICE`, `STALE_OI`, `STALE_BOOK` |
-| Feed integrity and sufficient observations | `GAP`, `OUT_OF_ORDER`, `CLOCK_SKEW` |
-| Spread and available depth | `WIDE_SPREAD`, `THIN_DEPTH` |
-| Comparable mark/mid/oracle references | `MARK_ORACLE_DIVERGENCE`, `MID_ORACLE_DIVERGENCE` |
-| Activity and temporal confirmation | `ISOLATED_TRADE`, `THIN_VOLUME` |
-| Compatible OI samples and dated funding | `OI_UNCONFIRMED`, `FUNDING_UNDATED` |
-| Session context and verified oracle observations | `SESSION_TRANSITION`, `ORACLE_MODE_UNKNOWN` |
-| Contradictory supporting signals | `PRICE_UP_OI_DOWN`, `BREAKOUT_NO_BOOK_SUPPORT` |
+| Antigüedad de cada campo | `STALE_PRICE`, `STALE_OI`, `STALE_BOOK` |
+| Integridad del flujo y observaciones suficientes | `GAP`, `OUT_OF_ORDER`, `CLOCK_SKEW` |
+| Diferencial y profundidad disponible | `WIDE_SPREAD`, `THIN_DEPTH` |
+| Referencias comparables de marca/precio medio/oráculo | `MARK_ORACLE_DIVERGENCE`, `MID_ORACLE_DIVERGENCE` |
+| Actividad y confirmación temporal | `ISOLATED_TRADE`, `THIN_VOLUME` |
+| Muestras compatibles de OI y financiación fechada | `OI_UNCONFIRMED`, `FUNDING_UNDATED` |
+| Contexto de sesión y observaciones verificadas del oráculo | `SESSION_TRANSITION`, `ORACLE_MODE_UNKNOWN` |
+| Señales de apoyo contradictorias | `PRICE_UP_OI_DOWN`, `BREAKOUT_NO_BOOK_SUPPORT` |
 
-Policies support notification, notification with warnings, or blocking for inadequate data. Missing indispensable data blocks confirmation; an unobservable contextual state stays unknown. The UI separates condition truth (`true / false / unknown`) from quality (`valid / warned / blocked`). Contradictory signals are facts to explain, not an invented probability of trading success.
+Las políticas permiten notificar, notificar con advertencias o bloquear por datos insuficientes. La falta de datos imprescindibles impide confirmar una señal; un estado de contexto no observable permanece desconocido. La interfaz separa la verdad de la condición (`true / false / unknown`) de la calidad (`valid / warned / blocked`). Las señales contradictorias son hechos que deben explicarse, no una probabilidad inventada de éxito de trading.
 
-## Data model and auditability
+## Modelo de datos y auditabilidad
 
-Instrument identity is `(network, dex, coin)`, never `coin` alone. Store economic values as PostgreSQL `NUMERIC` / Python `Decimal`, with units and schema versions. Preserve source timestamps when available, UTC reception/evaluation timestamps, and measurable latency or clock skew.
+La identidad de un instrumento es `(network, dex, coin)`, nunca solo `coin`. Almacena los valores económicos como `NUMERIC` en PostgreSQL y `Decimal` en Python, con unidades y versiones de esquema. Conserva las marcas temporales de origen disponibles, los tiempos UTC de recepción y evaluación y la latencia o el desfase de reloj medibles.
 
-| Tables | Purpose |
+| Tablas | Finalidad |
 | --- | --- |
-| `markets` | Instrument identity, units, applicable timezone/session, and metadata version. |
-| `market_samples` | Per-channel values, provenance, timestamps, available sequence/IDs, gap flags, and traceable payloads. |
-| `regime_observations` | Source, observation time, verified/unknown state, confirmation evidence, and reason. |
-| `alert_rules`, `alert_rule_versions` | Owner, lifecycle, policy, cooldown, delivery limits, and immutable typed definitions with an activation timestamp (`confirmed_at`). |
-| `rule_runtime` | Last evaluation state, persistence duration, last trigger, cooldown, processed-data cursor, and restart checkpoints. |
-| `alert_events`, `alert_evidence` | Rule version, transition, fingerprint, event status, observations, predicate results, quality decisions, and reason codes. |
-| `notification_outbox`, `deliveries` | Notification intent, recipient/channel, attempts, provider results, and unique `(event_id, channel, recipient)`. |
+| `markets` | Identidad del instrumento, unidades, zona horaria/sesión aplicable y versión de metadatos. |
+| `market_samples` | Valores por canal, procedencia, tiempos, secuencias o identificadores disponibles, indicadores de interrupción y datos de origen trazables. |
+| `regime_observations` | Fuente, tiempo de observación, estado verificado o desconocido, evidencia de confirmación y motivo. |
+| `alert_rules`, `alert_rule_versions` | Propietario, ciclo de vida, política, espera entre eventos, límites de entrega y definiciones tipadas inmutables con marca temporal de activación (`confirmed_at`). |
+| `rule_runtime` | Último estado de evaluación, duración de persistencia, último disparo, espera entre eventos, posición de datos procesados y puntos de recuperación. |
+| `alert_events`, `alert_evidence` | Versión de regla, transición, huella, estado del evento, observaciones, resultados de predicados, decisiones de calidad y códigos de motivo. |
+| `notification_outbox`, `deliveries` | Intención de notificación, destinatario/canal, intentos, resultados del proveedor y unicidad de `(event_id, channel, recipient)`. |
 
-Proposed event statuses are `candidate`, `warn`, `confirmed`, `blocked`, and `data_unknown`. Index samples by market/time and rules/events by owner/status; partition samples only when volume warrants it.
+Los estados de evento propuestos son `candidate`, `warn`, `confirmed`, `blocked` y `data_unknown`. Indexa muestras por mercado/tiempo y reglas/eventos por propietario/estado; particiona las muestras solo cuando el volumen lo justifique.
 
-Initial retention proposals are 7–30 days for detailed samples and 6–12 months for aggregates, subject to measured volume and data rights. Rule versions and event evidence remain while the account is active plus a defined deletion period. Avoid indefinite storage of full order books. Support user export/deletion, separate personal data from public market data, and encrypt stored Telegram tokens.
+Las propuestas iniciales de conservación son 7–30 días para muestras detalladas y 6–12 meses para agregados, según el volumen medido y los derechos sobre los datos. Las versiones de reglas y la evidencia se conservan mientras la cuenta esté activa más un plazo definido de eliminación. Evita almacenar libros completos indefinidamente. Permite exportar y eliminar datos del usuario, separa los datos personales de los datos públicos de mercado y cifra los tokens de Telegram almacenados.
 
-## AI boundaries and security
+## Límites de la IA y seguridad
 
-- Evaluate providers on a fixed Spanish-language corpus covering ambiguous rules, units, HIP-3 references, rejection cases, and evidence-based explanations. Measure structured-output correctness, invented figures, latency, cost, and data policies.
-- Start with an API provider if it passes the corpus. Consider self-hosted vLLM only when measured cost, privacy, or operational requirements justify it; retain the same interface and tests.
-- Generate explanations from persisted evidence. Fall back to a deterministic template when AI output lacks support, disagrees with recorded values, or the provider is unavailable. Version prompts/providers as explanation metadata.
-- Enforce ownership on every API query and live channel; validate inputs, rate-limit access, use HTTPS, minimize personal data, protect secrets, and verify backups. The MVP has no trading credentials or execution endpoints.
+- Evalúa proveedores con un conjunto fijo en español que incluya reglas ambiguas, unidades, referencias HIP-3, rechazos y explicaciones basadas en evidencia. Mide corrección de salidas estructuradas, cifras inventadas, latencia, coste y políticas de datos.
+- Comienza con un proveedor de API si supera esa evaluación. Considera vLLM autoalojado solo cuando el coste medido, la privacidad o los requisitos operativos lo justifiquen; conserva la misma interfaz y pruebas.
+- Genera explicaciones a partir de evidencia persistida. Recurre a una plantilla determinista si la salida de IA carece de respaldo, contradice los valores registrados o el proveedor no está disponible. Versiona los prompts y proveedores como metadatos de la explicación.
+- Aplica la propiedad de los datos en todas las consultas de API y canales en directo; valida entradas, limita peticiones, utiliza HTTPS, minimiza datos personales, protege secretos y verifica copias de seguridad. El MVP no tiene credenciales de trading ni endpoints de ejecución.
 
-## Validation and performance targets
+## Validación y objetivos de rendimiento
 
-Use versioned sample fixtures and a simulated clock for deterministic replay. Acceptance checks cover one event per eligible transition, explanations matching recorded evidence, blocking when mandatory data is stale, reconnect/restart recovery, cooldowns, and competing workers. Include exact thresholds, missing OI samples, zero spread, isolated trades, and backwards timestamps.
+Utiliza casos de muestra versionados y un reloj simulado para reproducir evaluaciones deterministas. Las comprobaciones de aceptación incluyen un evento por transición elegible, explicaciones acordes con la evidencia, bloqueo ante datos obligatorios antiguos, recuperación tras reconexión o reinicio, espera entre eventos y competencia entre workers. Incluye umbrales exactos, muestras de OI ausentes, diferencial cero, operaciones aisladas y marcas temporales que retroceden.
 
-Measure p50/p95/p99 across `received_at → evaluated_at → committed_at → delivered_at`, plus `source_at → received_at` only when source timestamps are comparable. Initial engineering targets, subject to a defined load and benchmarks:
+Mide p50/p95/p99 en `received_at → evaluated_at → committed_at → delivered_at`, y también `source_at → received_at` solo cuando las marcas temporales de origen sean comparables. Los objetivos iniciales, sujetos a una carga definida y pruebas de rendimiento, son:
 
-- Evaluation p95 below **100 ms** from reception with rules preloaded.
-- Persistence and enqueue p95 below **300 ms** under the agreed workload.
-- Burst tests reporting p95/p99 latency and loss/duplication rates.
+- p95 de evaluación inferior a **100 ms** desde la recepción, con las reglas precargadas.
+- p95 de persistencia y encolado inferior a **300 ms** bajo la carga acordada.
+- Pruebas de ráfagas que informen de p95/p99 y tasas de pérdida o duplicación.
 
-Telegram delivery time and exchange publication cadence are external factors. Keep SQL and AI calls out of per-tick evaluation without sacrificing durable event evidence or gap detection.
+El tiempo de entrega de Telegram y la cadencia de publicación del mercado son factores externos. Mantén las llamadas SQL y de IA fuera de la evaluación de cada actualización sin renunciar a la persistencia de evidencia ni a la detección de interrupciones.
 
-## Delivery roadmap
+## Plan de desarrollo
 
-| Phase | Work | Exit criterion |
+| Fase | Trabajo | Criterio de salida |
 | --- | --- | --- |
-| **0 — Feasibility** | Small ingestion prototype/dataset; verify market identity, fields, cadence, freshness, API limits, permissions, and oracle-state observability. | A per-market feasibility matrix and go/no-go decision, including explicit `NO_VERIFICADO` behavior where necessary. |
-| **1 — Deterministic core** | Schema/migrations, subscriptions, samples, windowed evaluation, quality checks, replay, recovery, and auditable events. | Reproducible console alerts with recorded evidence, without AI. |
-| **2 — Product beta** | FastAPI, authentication, React UI, agent-driven rule creation, event history, Telegram/outbox, live updates, and observability. | A beta for a small user group with traceable alert and delivery behavior. |
-| **3 — AI assistance** | Natural-language rule proposals and controlled explanations; compare providers using the fixed corpus. | User-requested rules and evidence-grounded explanations passing the evaluation set. |
+| **0 — Viabilidad** | Prototipo o conjunto pequeño de ingestión; verificar identidad de mercados, campos, cadencia, antigüedad, límites de API, permisos y observabilidad del estado del oráculo. | Matriz de viabilidad por mercado y decisión de continuar o detener, con comportamiento explícito `NO_VERIFICADO` cuando corresponda. |
+| **1 — Núcleo determinista** | Esquema/migraciones, suscripciones, muestras, evaluación por ventanas, comprobaciones de calidad, reproducción, recuperación y eventos auditables. | Alertas reproducibles en consola con evidencia registrada, sin IA. |
+| **2 — Beta del producto** | FastAPI, autenticación, interfaz React, reglas creadas por el agente, historial, Telegram/bandeja de salida, actualizaciones en directo y observabilidad. | Beta para un grupo pequeño con detección y entrega trazables. |
+| **3 — Asistencia de IA** | Propuestas de reglas en lenguaje natural y explicaciones controladas; comparar proveedores con el conjunto fijo. | Reglas solicitadas por usuarios y explicaciones basadas en evidencia que superen la evaluación. |
 
-Progress depends on observed feed quality, reproducible false-alarm and outage tests, verified oracle context or an explicit unknown fallback, and demonstrated usefulness of caution-rich alerts compared with conventional alerts.
+El progreso depende de la calidad observada de los flujos, pruebas reproducibles de falsas alarmas y fallos, contexto verificado del oráculo o una alternativa explícita de estado desconocido y utilidad demostrada de alertas con motivos de cautela frente a alertas convencionales.
 
-## Open decisions
+## Decisiones abiertas
 
-- Initial network, HIP-3 deployer, and market basket.
-- Reliable oracle-state source and access permissions; session calendars and timezone rules.
-- Per-field freshness budgets, thresholds, default quality policy, and recovery behavior.
-- Target number of users/rules/markets and expected burst load.
-- Retention, hosting and notification costs, and eventual stock-data licensing.
-- Production model selection, provider data policy, cost limits, rate limiting, and outage behavior.
+- Red inicial, operador HIP-3 y conjunto de mercados.
+- Fuente fiable del estado del oráculo y permisos de acceso; calendarios de sesión y reglas de zona horaria.
+- Límites de antigüedad por campo, umbrales, política de calidad predeterminada y recuperación.
+- Número objetivo de usuarios, reglas y mercados, y carga esperada de ráfagas.
+- Conservación de datos, costes de alojamiento y notificaciones, y futuras licencias de datos bursátiles.
+- Modelo de producción, política de datos del proveedor, límites de coste y peticiones, y comportamiento ante fallos.
 
-## Reference documentation
+## Documentación de referencia
 
-These are the documentation links cited by the architecture PDF. Their current contracts and provider-specific behavior must be verified during Phase 0 and implementation.
+Estos enlaces son los citados por el PDF de arquitectura. Sus contratos actuales y el comportamiento específico de cada proveedor deben verificarse durante la fase 0 y la implementación.
 
-- Hyperliquid: [WebSocket subscriptions](https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/websocket/subscriptions), [WebSocket lifecycle](https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/websocket), [perpetuals info endpoint](https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/info-endpoint/perpetuals), and [API limits](https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/rate-limits-and-user-limits).
-- trade[XYZ]: [oracle-price mechanics](https://docs.trade.xyz/perpetuals/mechanics/oracle-price).
-- AI: [OpenRouter quickstart](https://openrouter.ai/docs/quickstart), [OpenRouter streaming](https://openrouter.ai/docs/api/reference/streaming), [OpenRouter transcription](https://openrouter.ai/docs/guides/overview/multimodal/stt), [LangChain structured output](https://docs.langchain.com/oss/python/langchain/structured-output), and [vLLM structured outputs](https://docs.vllm.ai/en/stable/features/structured_outputs).
-- Storage: [SQLAlchemy session basics](https://docs.sqlalchemy.org/en/20/orm/session_basics.html) and optional [pgvector](https://github.com/pgvector/pgvector).
+- Hyperliquid: [suscripciones WebSocket](https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/websocket/subscriptions), [ciclo de vida de WebSocket](https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/websocket), [endpoint de información de perpetuos](https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/info-endpoint/perpetuals) y [límites de API](https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/rate-limits-and-user-limits).
+- trade[XYZ]: [mecánica del precio del oráculo](https://docs.trade.xyz/perpetuals/mechanics/oracle-price).
+- IA: [inicio rápido de OpenRouter](https://openrouter.ai/docs/quickstart), [transmisión de OpenRouter](https://openrouter.ai/docs/api/reference/streaming), [transcripción de OpenRouter](https://openrouter.ai/docs/guides/overview/multimodal/stt), [salidas estructuradas de LangChain](https://docs.langchain.com/oss/python/langchain/structured-output) y [salidas estructuradas de vLLM](https://docs.vllm.ai/en/stable/features/structured_outputs).
+- Almacenamiento: [sesiones de SQLAlchemy](https://docs.sqlalchemy.org/en/20/orm/session_basics.html) y [pgvector](https://github.com/pgvector/pgvector) como opción.
