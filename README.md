@@ -1,34 +1,68 @@
-# hype-radar
+# Hype Radar
 
 **Market alerts with evidence, liquidity context, and a devil's advocate.**
 
-Hype Radar is a market-monitoring platform designed for Hyperliquid perpetuals and HIP-3 markets. It brings price, open interest, funding, and order-book conditions into one alert workflow, with the context needed to assess each event.
+Describe a market condition by voice or text, monitor it with a deterministic engine, and inspect the evidence behind each event. Hype Radar brings price, open interest, funding, and order-book conditions into one workspace for Hyperliquid perpetuals and selected HIP-3 markets.
+
+[![Hype Radar pitch cover: market alerts with evidence, in the platform's charcoal, gold, and green palette](docs/images/pitch-cover.png)](pitch-deck/Hype-Radar-Pitch.pdf)
+
+Explore the [current MVP](#current-mvp), [multimodal workflow](#multimodal-workflow), and [local setup](#run-locally). For deployment, see [production images](#production-images) and [AWS demo infrastructure](#aws-demo-infrastructure).
+
+## Pitch deck
+
+The presentation is in Spanish and follows the FinTech multimodal workshop brief.
+
+| Format | Use |
+| --- | --- |
+| [PowerPoint](pitch-deck/Hype-Radar-Pitch.pptx) | Editable slides, speaker notes, and animations. Open in Slide Show mode for staged reveals. |
+| [PDF](pitch-deck/Hype-Radar-Pitch.pdf) | Twelve complete slides, showing the final state of each animation. |
+
+## Current MVP
+
+- **Live market workspace.** Candles, order book, recent trades, and 24-hour mark-price changes for BTC, ETH, SP500, XYZ100, and BRENTOIL.
+- **Voice and text interaction.** Record a short request, review its transcription, then send it to the assistant. The transcript is never sent automatically.
+- **Agent-driven rules.** Ten typed tools query shared market data, create or preview alerts, manage their status, and retrieve recorded event evidence.
+- **Deterministic evaluation.** Combine metric thresholds and OI changes with explicit windows, persistence, cooldowns, and quality policies.
+- **Liquidity and data checks.** Evaluate spread, depth, freshness, and feed integrity separately from the rule's condition. Missing required data cannot confirm a signal.
+- **Web history and evidence.** Inspect the original rule version, observed values, timestamps, and quality reasons. Pause or resume rules from the alerts panel or assistant.
+
+The MVP runs as a shared instance. External notification delivery and per-user accounts remain roadmap work. It does not place trades or require trading credentials. SP500, XYZ100, and BRENTOIL represent Hyperliquid perpetuals, not official underlying-market quotations.
+
+### Example workflow
+
+> Create an alert for BTC when open interest rises 5% over 15 minutes. Block the event if the spread exceeds 10 basis points.
+
+1. Type the request, or record it and review the returned transcript before sending.
+2. The agent creates the requested rule and reports its exact conditions. Ask for a preview to produce an inactive draft instead.
+3. Follow the rule's monitoring state. OI conditions may need to warm up while the required observations accumulate.
+4. Inspect events in web history. Condition truth and data quality have separate results, so a true condition can still produce a blocked event.
+
+## Multimodal workflow
+
+The default configuration uses `openai/whisper-1` for transcription and `deepseek/deepseek-v4-flash` for the language agent through OpenRouter. Both models are configurable. LangChain coordinates the agent's tools with the application's existing market and alert services.
+
+```mermaid
+flowchart TD
+    VOICE[Voice recording] --> STT[Transcription model]
+    STT --> REVIEW[Transcript reviewed by user]
+    REVIEW --> AGENT[Language agent and typed tools]
+    TEXT[Typed request] --> AGENT
+    HYPERLIQUID[Hyperliquid WebSocket and REST] --> DATA[Shared market data]
+    DATA --> AGENT
+    AGENT --> RULE[Validated and stored alert rule]
+    RULE --> ENGINE[Deterministic evaluator and quality checks]
+    DATA --> ENGINE
+    ENGINE --> EVIDENCE[Recorded event evidence]
+    EVIDENCE --> HISTORY[Web history]
+```
+
+The agent and evaluator read the same market-data service. AI calls stay outside the evaluation path for each market update. Charts visualize numerical market data; image analysis and synthesized voice output are not implemented modalities.
 
 ## Product vision
 
-Turn a market hypothesis into a precise rule, follow it in real time, and receive an alert that explains what happened and how reliable the supporting data are. Hype Radar will pair every signal with its observations, liquidity conditions, and relevant session context, so users can inspect the event behind the notification.
+The **devil's advocate** gives users reasons to examine an alert carefully: stale observations, thin liquidity, conflicting signals, and uncertain market context. The current engine already records liquidity, freshness, and integrity checks; broader session context and verified oracle observations require further source validation.
 
-The **devil's advocate** is central to the experience. When a condition is met, the system will also examine stale observations, thin liquidity, conflicting signals, and uncertain oracle context. Users will be able to see both the evidence supporting an alert and the reasons to treat it with caution.
-
-AI assistance will make rules easier to express and events easier to understand. A deterministic engine will evaluate the confirmed conditions, while explanations stay grounded in the recorded market data. Users retain control over their rules and trading decisions.
-
-## Core capabilities
-
-- **Custom market conditions.** Combine price, open interest (OI), and funding predicates with explicit windows, thresholds, persistence requirements, and cooldowns.
-- **Agent-driven rule creation.** Describe conditions in plain language, then ask the agent to create the rule; ask for a preview when you only want a draft.
-- **Liquidity-aware alerts.** Evaluate spread, order-book depth, activity, and data freshness alongside the primary condition, with configurable warning and blocking policies.
-- **HIP-3 market context.** Surface session transitions, reference-price divergence, and verified oracle-regime observations for the selected deployer.
-- **Web and Telegram notifications.** Receive event summaries with supporting evidence, quality warnings, and a link to the full breakdown.
-- **An auditable event timeline.** Inspect the rule version, observations, predicate results, quality decisions, and delivery history behind each event.
-- **Live market and feed health.** Track monitored instruments, observation freshness, connection gaps, and recovery status from the web app.
-
-### Target workflow
-
-> Alert me when HYPE moves above my price threshold, open interest rises over the last 15 minutes, and the spread stays below my limit.
-
-The agent creates and activates the requested rule, then summarizes its exact conditions. When they are met, the alert includes the observed values, timestamps, and quality checks. If the data are incomplete or liquidity is weak, the configured policy determines whether to warn or block the notification, with the reason visible in the event history.
-
-The first release will focus on a small basket of markets, potentially HYPE and selected instruments from one HIP-3 deployer. The MVP pairs the deterministic engine with agent-driven rule creation. The roadmap prioritizes reliable detection, useful context, and a complete evidence trail.
+Next steps include per-user authorization and external notifications through the durable outbox. The [delivery roadmap](#delivery-roadmap) describes the wider product vision and its acceptance criteria. Users retain control over their rules and trading decisions.
 
 ## Run locally
 
