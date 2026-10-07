@@ -17,3 +17,4 @@ crash.log
 crash.*.log
 .DS_Store
 output/
+.tmp/
