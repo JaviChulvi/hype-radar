@@ -16,3 +16,5 @@ __pycache__/
 crash.log
 crash.*.log
 .DS_Store
+output/
+.tmp/
